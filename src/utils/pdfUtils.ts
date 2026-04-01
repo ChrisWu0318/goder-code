@@ -1,4 +1,5 @@
 import { getMainLoopModel } from './model/model.js'
+import { isEnvTruthy } from './envUtils.js'
 
 // Document extensions that are handled specially
 export const DOCUMENT_EXTENSIONS = new Set(['pdf'])
@@ -55,8 +56,14 @@ export function parsePDFPageRange(
  * Haiku 3 is the only remaining model that predates PDF support; users on
  * it fall back to the page-extraction path (poppler-utils). Substring match
  * covers all provider ID formats (Bedrock prefixes, Vertex @-dates).
+ *
+ * OpenAI-compatible providers don't support Anthropic document blocks,
+ * so force the page-extraction fallback path.
  */
 export function isPDFSupported(): boolean {
+  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI_COMPAT)) {
+    return false
+  }
   return !getMainLoopModel().toLowerCase().includes('claude-3-haiku')
 }
 

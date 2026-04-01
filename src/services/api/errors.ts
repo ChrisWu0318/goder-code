@@ -899,6 +899,20 @@ export function getAssistantMessageFromError(
     })
   }
 
+  // Image input not supported — model/provider doesn't support vision
+  if (
+    error instanceof Error &&
+    error.message.toLowerCase().includes('image') &&
+    (error.message.toLowerCase().includes('not support') ||
+      error.message.toLowerCase().includes('no endpoints'))
+  ) {
+    const switchCmd = getIsNonInteractiveSession() ? '--model' : '/model'
+    return createAssistantAPIErrorMessage({
+      content: `当前模型不支持图片输入。请使用 ${switchCmd} 切换到支持视觉能力的模型（如 GPT-4o、Claude 3.5 Sonnet 等），或者不带图片重新发送消息。\nThe current model does not support image input. Use ${switchCmd} to switch to a vision-capable model, or resend without images.`,
+      error: 'invalid_request',
+    })
+  }
+
   // 404 Not Found — usually means the selected model doesn't exist or isn't
   // available. Guide the user to /model so they can pick a valid one.
   // For 3P users, suggest a specific fallback model they can try.

@@ -167,24 +167,60 @@ function convertUserMessage(
 
       case 'tool_result': {
         let resultText = ''
+        const resultImages: OAIContentPart[] = []
         if (typeof block.content === 'string') {
           resultText = block.content
         } else if (Array.isArray(block.content)) {
-          resultText = (
-            block.content as { type: string; text?: string }[]
-          )
-            .filter(b => b.type === 'text' && b.text)
-            .map(b => b.text!)
-            .join('\n')
+          for (const b of block.content as {
+            type: string
+            text?: string
+            source?: { type: string; media_type?: string; data?: string; url?: string }
+          }[]) {
+            if (b.type === 'text' && b.text) {
+              resultText += (resultText ? '\n' : '') + b.text
+            } else if (b.type === 'image' && b.source) {
+              // Convert image blocks inside tool_result to image_url
+              if (b.source.type === 'base64' && b.source.data) {
+                resultImages.push({
+                  type: 'image_url',
+                  image_url: {
+                    url: `data:${b.source.media_type ?? 'image/png'};base64,${b.source.data}`,
+                  },
+                })
+              } else if (b.source.type === 'url' && b.source.url) {
+                resultImages.push({
+                  type: 'image_url',
+                  image_url: { url: b.source.url },
+                })
+              }
+            }
+          }
         }
         if (block.is_error) {
           resultText = `[ERROR] ${resultText}`
         }
-        toolResults.push({
-          role: 'tool',
-          tool_call_id: block.tool_use_id ?? '',
-          content: resultText || '(empty result)',
-        })
+        // If there are images inside tool_result, send them as a user message
+        // (OpenAI tool messages don't support image_url content parts)
+        if (resultImages.length > 0) {
+          const parts: OAIContentPart[] = []
+          if (resultText) {
+            parts.push({ type: 'text', text: resultText })
+          }
+          parts.push(...resultImages)
+          // Tool result text goes as tool message, images as a follow-up user message
+          toolResults.push({
+            role: 'tool',
+            tool_call_id: block.tool_use_id ?? '',
+            content: resultText || '(tool returned image content)',
+          })
+          textParts.push(...resultImages)
+        } else {
+          toolResults.push({
+            role: 'tool',
+            tool_call_id: block.tool_use_id ?? '',
+            content: resultText || '(empty result)',
+          })
+        }
         break
       }
 
@@ -205,7 +241,20 @@ function convertUserMessage(
         break
       }
 
-      // document, thinking, etc. — extract text if present
+      case 'document': {
+        // OpenAI API doesn't support document blocks (PDF etc.)
+        // Convert to a text placeholder — the content will be available
+        // if the model supports it via the image retry path, otherwise
+        // the user gets a clear message that the content was not processed.
+        const mediaType = block.source?.media_type ?? 'unknown'
+        textParts.push({
+          type: 'text',
+          text: `[Document content (${mediaType}) — this model/provider does not support inline document input. Consider converting the document to text first, or use a model that supports PDF input.]`,
+        })
+        break
+      }
+
+      // thinking, etc. — extract text if present
       default:
         if (block.text) {
           textParts.push({ type: 'text', text: block.text })
@@ -309,10 +358,34 @@ function convertTools(tools: unknown[] | undefined): OAITool[] | undefined {
     }))
 }
 
-function buildOAIRequest(params: Record<string, unknown>): OAIChatRequest {
+/**
+ * Strip image_url content parts from all messages.
+ * When the target model doesn't support vision, we retry without images
+ * and prepend a notice so the user knows images were dropped.
+ */
+function stripImagesFromMessages(messages: OAIMessage[]): OAIMessage[] {
+  return messages.map(msg => {
+    if (!Array.isArray(msg.content)) return msg
+    const filtered = (msg.content as OAIContentPart[]).filter(
+      p => p.type !== 'image_url',
+    )
+    if (filtered.length === msg.content.length) return msg // no images removed
+    // If only images were in the message, replace with a text notice
+    if (filtered.length === 0) {
+      return { ...msg, content: '[Image content removed: current model does not support image input]' }
+    }
+    return { ...msg, content: filtered }
+  })
+}
+
+function buildOAIRequest(params: Record<string, unknown>, stripImages = false): OAIChatRequest {
   const system = convertSystemPrompt(params.system as unknown[] | string)
-  const messages = convertMessages(params.messages as unknown[])
+  let messages = convertMessages(params.messages as unknown[])
   const tools = convertTools(params.tools as unknown[])
+
+  if (stripImages) {
+    messages = stripImagesFromMessages(messages)
+  }
 
   // Determine model: use OPENAI_MODEL env or the model from params
   const model =
@@ -694,6 +767,32 @@ export function createOpenAICompatClient(options: {
     }
   }
 
+  /**
+   * Detect if an error indicates the model/provider doesn't support image input.
+   */
+  function isImageNotSupportedError(err: unknown): boolean {
+    if (!(err instanceof Error)) return false
+    const msg = err.message.toLowerCase()
+    return (
+      (msg.includes('image') && (msg.includes('not support') || msg.includes('no endpoints'))) ||
+      msg.includes('does not support image') ||
+      msg.includes('image input') ||
+      msg.includes('vision is not supported') ||
+      msg.includes('image_url is not supported')
+    )
+  }
+
+  /**
+   * Check whether the OAI request contains any image_url content parts.
+   */
+  function requestHasImages(req: OAIChatRequest): boolean {
+    return req.messages.some(
+      m =>
+        Array.isArray(m.content) &&
+        (m.content as OAIContentPart[]).some(p => p.type === 'image_url'),
+    )
+  }
+
   // The streaming create function
   async function createStream(
     params: Record<string, unknown>,
@@ -715,16 +814,41 @@ export function createOpenAICompatClient(options: {
       headers['X-Title'] = 'Claude Code'
     }
 
-    const response = await fetchWithRetry(
-      url,
-      {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(oaiRequest),
-        signal: requestOptions?.signal,
-      },
-      maxRetries,
-    )
+    let response: Response
+    let actualRequest = oaiRequest
+    try {
+      response = await fetchWithRetry(
+        url,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(oaiRequest),
+          signal: requestOptions?.signal,
+        },
+        maxRetries,
+      )
+    } catch (err) {
+      // If the model doesn't support images, retry with images stripped
+      if (isImageNotSupportedError(err) && requestHasImages(oaiRequest)) {
+        // biome-ignore lint/suspicious/noConsole: intentional warning
+        console.error(
+          '[OpenAI Compat] Model does not support image input — retrying without images',
+        )
+        actualRequest = buildOAIRequest(params, true)
+        response = await fetchWithRetry(
+          url,
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(actualRequest),
+            signal: requestOptions?.signal,
+          },
+          maxRetries,
+        )
+      } else {
+        throw err
+      }
+    }
 
     const reader = response.body!.getReader()
     const state = createStreamState()
@@ -777,16 +901,41 @@ export function createOpenAICompatClient(options: {
       headers['X-Title'] = 'Claude Code'
     }
 
-    const response = await fetchWithRetry(
-      url,
-      {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(oaiRequest),
-        signal: requestOptions?.signal,
-      },
-      maxRetries,
-    )
+    let response: Response
+    try {
+      response = await fetchWithRetry(
+        url,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(oaiRequest),
+          signal: requestOptions?.signal,
+        },
+        maxRetries,
+      )
+    } catch (err) {
+      if (isImageNotSupportedError(err) && requestHasImages(oaiRequest)) {
+        // biome-ignore lint/suspicious/noConsole: intentional warning
+        console.error(
+          '[OpenAI Compat] Model does not support image input — retrying without images',
+        )
+        const fallbackRequest = buildOAIRequest(params, true)
+        fallbackRequest.stream = false
+        delete fallbackRequest.stream_options
+        response = await fetchWithRetry(
+          url,
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(fallbackRequest),
+            signal: requestOptions?.signal,
+          },
+          maxRetries,
+        )
+      } else {
+        throw err
+      }
+    }
 
     const data = (await response.json()) as {
       id: string
