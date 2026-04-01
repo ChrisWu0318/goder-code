@@ -1,5 +1,7 @@
 # Goder Code
 
+**[English](README_EN.md)** | 中文
+
 > 一个对 Anthropic 官方 Claude Code CLI 的逆向工程 / 反编译项目，在还原核心功能的基础上新增安全特性与中文支持。
 
 基于 Anthropic 官方 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI 的分发产物反编译还原，恢复了完整的核心功能（REPL 对话、工具系统、API 通信、MCP 集成等），并在此基础上添加了四项实用安全特性和 `/helpc` 中文帮助系统。

@@ -1,5 +1,7 @@
 # Goder Code
 
+**English** | [中文](README.md)
+
 > A reverse-engineered / decompiled project based on Anthropic's official Claude Code CLI, restoring core functionality while adding security features and multi-language support.
 
 Decompiled and restored from Anthropic's official [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI distribution, recovering complete core functionality (REPL conversation, tool system, API communication, MCP integration, etc.), with four practical security features and `/helpc` Chinese help system added on top.
