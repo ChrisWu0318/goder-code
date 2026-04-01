@@ -425,6 +425,23 @@ bun run dev -- --hard-fail        # 遇到错误立即终止进程
 
 约 1341 个 tsc 错误，均来自反编译过程（主要是 `unknown`/`never`/`{}` 类型），不影响 Bun 运行时执行。
 
+## 赞赏
+
+如果觉得 Goder Code 对你有帮助，欢迎请我喝杯咖啡 ☕
+
+<table>
+<tr>
+<td align="center">
+<img src="assets/wechat-sponsor.jpg" width="200" alt="微信赞赏码"/><br/>
+<strong>微信</strong>
+</td>
+<td align="center">
+<img src="assets/alipay-sponsor.jpg" width="200" alt="支付宝收款码"/><br/>
+<strong>支付宝</strong>
+</td>
+</tr>
+</table>
+
 ## 注意事项
 
 - 本项目是逆向工程产物，仅供学习和研究用途
