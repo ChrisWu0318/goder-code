@@ -96,9 +96,12 @@ type VoiceStreamMessage =
 // ─── Availability ──────────────────────────────────────────────────────
 
 export function isVoiceStreamAvailable(): boolean {
-  // voice_stream uses the same OAuth as Claude Code — available when the
-  // user is authenticated with Anthropic (Claude.ai subscriber or has
-  // valid OAuth tokens).
+  // Goder: check HTTP STT providers first (Groq / OpenAI Whisper)
+  const { isHttpSTTAvailable } = require('./voiceHttpSTT.js') as typeof import('./voiceHttpSTT.js')
+  if (isHttpSTTAvailable()) {
+    return true
+  }
+  // Fallback: Anthropic voice_stream WebSocket (requires OAuth)
   if (!isAnthropicAuthEnabled()) {
     return false
   }
@@ -112,6 +115,14 @@ export async function connectVoiceStream(
   callbacks: VoiceStreamCallbacks,
   options?: { language?: string; keyterms?: string[] },
 ): Promise<VoiceStreamConnection | null> {
+  // Goder: prefer HTTP STT (Groq/OpenAI) over Anthropic WebSocket
+  const { isHttpSTTAvailable, connectHttpSTT } = require('./voiceHttpSTT.js') as typeof import('./voiceHttpSTT.js')
+  if (isHttpSTTAvailable()) {
+    logForDebugging('[voice_stream] Delegating to HTTP STT provider')
+    return connectHttpSTT(callbacks, options)
+  }
+
+  // Fallback: Anthropic voice_stream WebSocket
   // Ensure OAuth token is fresh before connecting
   await checkAndRefreshOAuthTokenIfNeeded()
 

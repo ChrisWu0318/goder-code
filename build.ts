@@ -13,6 +13,7 @@ const ENABLED_FEATURES = [
     'TRANSCRIPT_CLASSIFIER',
     'MCP_SKILLS',
     'HARD_FAIL',
+    'VOICE_MODE',
 ];
 
 // Step 1: Clean output directory

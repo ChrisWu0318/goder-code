@@ -7,6 +7,7 @@ const ENABLED_FEATURES = new Set([
     'TRANSCRIPT_CLASSIFIER',
     'MCP_SKILLS',
     'HARD_FAIL',
+    'VOICE_MODE',
 ]);
 const feature = (name: string) => ENABLED_FEATURES.has(name);
 

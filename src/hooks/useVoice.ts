@@ -985,10 +985,10 @@ export function useVoice({
         }
         if (!conn) {
           logForDebugging(
-            '[voice] Failed to connect to voice_stream (no OAuth token?)',
+            '[voice] Failed to connect to STT provider',
           )
           onErrorRef.current?.(
-            'Voice mode requires a Claude.ai account. Please run /login to sign in.',
+            'Voice connection failed. Check your STT API key (GROQ_API_KEY or OPENAI_API_KEY).',
           )
           // Clear the audio buffer on failure
           audioBuffer.length = 0
