@@ -29,7 +29,7 @@ import { sleep } from '../utils/sleep.js'
 
 // ─── Language normalization ─────────────────────────────────────────────
 
-const DEFAULT_STT_LANGUAGE = 'en'
+const DEFAULT_STT_LANGUAGE = 'auto'
 
 // Maps language names (English and native) to BCP-47 codes supported by
 // the voice_stream Deepgram backend.  Keys must be lowercase.
