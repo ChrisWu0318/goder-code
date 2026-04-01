@@ -24,6 +24,11 @@ const OPENAI_COMPAT_CONTEXT_WINDOWS: Array<{ pattern: string; tokens: number }> 
   { pattern: 'gpt-4',           tokens: 8_192 },
   { pattern: 'o3',              tokens: 200_000 },
   { pattern: 'o4-mini',         tokens: 200_000 },
+  // Xiaomi MiMo
+  { pattern: 'mimo-v2-pro',     tokens: 1_000_000 },
+  { pattern: 'mimo-v2-flash',   tokens: 256_000 },
+  { pattern: 'mimo-v2-omni',    tokens: 256_000 },
+  { pattern: 'mimo',            tokens: 128_000 },
   // DeepSeek
   { pattern: 'deepseek',        tokens: 64_000 },
   // Qwen
