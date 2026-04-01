@@ -1,0 +1,329 @@
+# Goder Code
+
+> 一个对 Anthropic 官方 Claude Code CLI 的逆向工程 / 反编译项目，在还原核心功能的基础上新增安全特性与中文支持。
+
+基于 Anthropic 官方 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI 的分发产物反编译还原，恢复了完整的核心功能（REPL 对话、工具系统、API 通信、MCP 集成等），并在此基础上添加了四项实用安全特性和 `/helpc` 中文帮助系统。
+
+## 快速开始
+
+### 环境要求
+
+请使用最新版本的 Bun，避免遇到兼容性问题。
+
+```bash
+bun upgrade
+```
+
+- [Bun](https://bun.sh/) >= 1.3.11
+
+### 安装与运行
+
+```bash
+# 克隆项目
+git clone https://github.com/ChrisWu0318/goder-code.git
+cd goder-code
+
+# 安装依赖
+bun install
+
+# 开发模式（版本号显示 888 说明加载成功）
+bun run dev
+
+# 管道模式（非交互式）
+echo "帮我总结一下当前目录的文件" | bun run src/entrypoints/cli.tsx -p
+
+# 构建（输出 dist/ 目录，入口为 dist/cli.js + ~450 个 chunk 文件）
+bun run build
+```
+
+构建产物同时支持 Bun 和 Node 启动。
+
+### API 认证
+
+Goder Code 支持多种模型 Provider，通过环境变量配置：
+
+#### Anthropic 直连
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+bun run dev
+```
+
+#### OpenRouter（推荐，可访问数百个模型）
+
+```bash
+export CLAUDE_CODE_USE_OPENAI_COMPAT=1
+export OPENAI_API_KEY="sk-or-v1-xxxxxxxx"
+export OPENAI_BASE_URL="https://openrouter.ai/api/v1"
+export OPENAI_MODEL="anthropic/claude-sonnet-4"    # 可换成任何模型，如 deepseek/deepseek-chat-v3、qwen/qwen3-235b-a22b
+bun run dev
+```
+
+#### 本地模型（Ollama / vLLM / LiteLLM）
+
+```bash
+export CLAUDE_CODE_USE_OPENAI_COMPAT=1
+export OPENAI_API_KEY="ollama"
+export OPENAI_BASE_URL="http://localhost:11434/v1"
+export OPENAI_MODEL="qwen3:235b"
+bun run dev
+```
+
+#### AWS Bedrock
+
+```bash
+export CLAUDE_CODE_USE_BEDROCK=1
+export AWS_ACCESS_KEY_ID="..."
+export AWS_SECRET_ACCESS_KEY="..."
+bun run dev
+```
+
+#### Google Vertex
+
+```bash
+export CLAUDE_CODE_USE_VERTEX=1
+export CLOUD_ML_REGION="us-east5"
+bun run dev
+```
+
+#### 写入 zsh 配置（永久生效）
+
+把环境变量加到 `~/.zshrc`，避免每次手动 export：
+
+```bash
+# Goder Code — OpenRouter 配置
+export CLAUDE_CODE_USE_OPENAI_COMPAT=1
+export OPENAI_API_KEY="sk-or-v1-xxxxxxxx"
+export OPENAI_BASE_URL="https://openrouter.ai/api/v1"
+export OPENAI_MODEL="anthropic/claude-sonnet-4"
+```
+
+保存后执行 `source ~/.zshrc` 即可。
+
+## Goder Code 增强特性
+
+在还原原版 Claude Code 全部核心能力的基础上，Goder Code 新增了以下特性：
+
+### 四项核心功能
+
+**1. Bash 命令过滤器** (`src/tools/BashTool/commandFilter.ts`)
+
+预执行安全拦截，内置危险命令黑名单（`rm -rf /`、`mkfs`、fork bomb 等），支持通过 `~/.claude/settings.json` 或环境变量自定义允许/拒绝规则：
+
+```bash
+export GODER_BASH_ALLOW="git:*,npm:*"
+export GODER_BASH_DENY="rm:-rf /,mkfs:*,dd:if=/dev/zero"
+```
+
+**2. Agent 安全护栏** (`src/utils/agentGuardrails.ts`)
+
+防止失控的 API 消耗和无限循环：
+- 最大轮次限制（`GODER_MAX_TURNS`，默认 100）
+- 成本预算控制（`GODER_MAX_BUDGET_USD`，默认 $5）
+- 滑动窗口循环检测（5 次连续相同工具调用自动停止）
+- 连续错误熔断（3 次连续错误自动停止）
+
+```bash
+export GODER_MAX_TURNS=100
+export GODER_MAX_BUDGET_USD=5
+```
+
+**3. 智能压缩** (`src/services/compact/smartCompact.ts`)
+
+本地对话压缩，无需额外 API 调用，四个阶段：裁剪大型工具结果 → 分段分组 → 摘要合并 → 保留最近 N 轮对话。
+
+**4. Feature Flag 选择性启用** (`src/entrypoints/cli.tsx`)
+
+`feature()` 从始终返回 `false` 改为通过 `ENABLED_FEATURES` 集合选择性启用，解锁 6 个高级功能模块。
+
+### 已启用的 Feature Flags (6 个)
+
+| Flag | 说明 |
+|------|------|
+| `BG_SESSIONS` | 后台会话管理（`claude ps` / `logs` / `attach` / `kill` + `--bg` 后台运行） |
+| `BUDDY` | 伴侣精灵（Tux 企鹅）动画交互 |
+| `COORDINATOR_MODE` | 多代理协调，主线程分配子任务给 worker agent |
+| `TRANSCRIPT_CLASSIFIER` | 基于对话分析的自动工具权限决策（`claude auto-mode`） |
+| `MCP_SKILLS` | MCP 服务器提供的可调用 skills/prompts |
+| `HARD_FAIL` | 严格错误处理模式（`--hard-fail` 使错误立即终止进程） |
+
+### 中文帮助
+
+输入 `/helpc` 查看完整的中文帮助文档，包含所有功能、命令、快捷键和配置说明。
+
+## 能力清单
+
+> ✅ 已实现 &emsp; ⚠️ 部分实现 / 条件启用 &emsp; ❌ stub / 移除 / feature flag 关闭
+
+### 核心系统
+
+| 能力 | 状态 | 说明 |
+|------|------|------|
+| REPL 交互界面（Ink 终端渲染） | ✅ | 主屏幕 5000+ 行，完整交互 |
+| API 通信 — Anthropic Direct | ✅ | 支持 API Key + OAuth |
+| API 通信 — AWS Bedrock | ✅ | 支持凭据刷新、Bearer Token |
+| API 通信 — Google Vertex | ✅ | 支持 GCP 凭据刷新 |
+| API 通信 — Azure Foundry | ✅ | 支持 API Key + Azure AD |
+| API 通信 — OpenRouter | ✅ | OpenAI 兼容适配器（883 行），支持数百模型 |
+| 流式对话与工具调用循环 (`query.ts`) | ✅ | 1700+ 行，含自动压缩、token 追踪 |
+| 会话引擎 (`QueryEngine.ts`) | ✅ | 1300+ 行，管理对话状态与归因 |
+| 上下文构建（git status / CLAUDE.md / memory） | ✅ | `context.ts` 完整实现 |
+| 权限系统（plan/auto/manual 模式） | ✅ | 6300+ 行，含 YOLO 分类器、路径验证、规则匹配 |
+| Hook 系统（pre/post tool use） | ✅ | 支持 settings.json 配置 |
+| 会话恢复 (`/resume`) | ✅ | 独立 ResumeConversation 屏幕 |
+| Doctor 诊断 (`/doctor`) | ✅ | 版本、API、插件、沙箱检查 |
+| 自动压缩 (compaction) | ✅ | auto-compact / micro-compact / API compact |
+| 后台会话管理 (`BG_SESSIONS`) | ✅ | `claude ps` / `logs` / `attach` / `kill` + `--bg` 后台运行 |
+| 多 Agent 协调模式 (`COORDINATOR_MODE`) | ✅ | Claude 作为协调者分派任务给 Worker Agent，支持并行执行 |
+| 对话分类器 (`TRANSCRIPT_CLASSIFIER`) | ✅ | 基于上下文自动判断是否批准/拒绝工具调用，`claude auto-mode` |
+| MCP 技能系统 (`MCP_SKILLS`) | ✅ | MCP 服务器提供可被模型直接调用的 skill / prompt |
+| 严格错误模式 (`HARD_FAIL`) | ✅ | 配合 `--hard-fail` 参数，`logError()` 立即终止进程 |
+| 伴侣精灵 (`BUDDY`) | ✅ | Tux 企鹅动画角色 + 气泡反应，增强终端交互体验 |
+| Bash 命令过滤器 | ✅ | 新增：预执行安全拦截 + 自定义规则 |
+| Agent 安全护栏 | ✅ | 新增：成本预算、轮次限制、循环检测、熔断 |
+| 智能压缩 | ✅ | 新增：本地对话压缩，无需 API 调用 |
+| `/helpc` 中文帮助 | ✅ | 新增：完整中文帮助文档 |
+
+### 工具 — 始终可用
+
+| 工具 | 状态 | 说明 |
+|------|------|------|
+| BashTool | ✅ | Shell 执行，沙箱，权限检查 |
+| FileReadTool | ✅ | 文件 / PDF / 图片 / Notebook 读取 |
+| FileEditTool | ✅ | 字符串替换式编辑 + diff 追踪 |
+| FileWriteTool | ✅ | 文件创建 / 覆写 + diff 生成 |
+| NotebookEditTool | ✅ | Jupyter Notebook 单元格编辑 |
+| AgentTool | ✅ | 子代理派生（fork / async / background / remote） |
+| WebFetchTool | ✅ | URL 抓取 → Markdown → AI 摘要 |
+| WebSearchTool | ✅ | 网页搜索 + 域名过滤 |
+| AskUserQuestionTool | ✅ | 多问题交互提示 + 预览 |
+| SendMessageTool | ✅ | 消息发送（peers / teammates / mailbox） |
+| SkillTool | ✅ | 斜杠命令 / Skill 调用 |
+| EnterPlanModeTool | ✅ | 进入计划模式 |
+| ExitPlanModeTool | ✅ | 退出计划模式 |
+| BriefTool | ✅ | 简短消息 + 附件发送 |
+| CronCreateTool | ✅ | 定时任务创建 |
+| CronDeleteTool | ✅ | 定时任务删除 |
+| CronListTool | ✅ | 定时任务列表 |
+| EnterWorktreeTool | ✅ | 进入 Git Worktree |
+| ExitWorktreeTool | ✅ | 退出 Git Worktree |
+
+### 工具 — 条件启用
+
+| 工具 | 启用条件 |
+|------|----------|
+| GlobTool | 默认启用（未嵌入 bfs/ugrep 时） |
+| GrepTool | 默认启用（同上） |
+| TaskCreateTool / TaskGetTool / TaskUpdateTool / TaskListTool | TodoV2 启用时 |
+| PowerShellTool | Windows 平台 |
+| LSPTool | `ENABLE_LSP_TOOL` 环境变量 |
+
+### 工具 — Feature Flag 关闭（不可用）
+
+`SleepTool` · `RemoteTriggerTool` · `MonitorTool` · `SendUserFileTool` · `OverflowTestTool` · `TerminalCaptureTool` · `WebBrowserTool` · `SnipTool` · `WorkflowTool` · `PushNotificationTool` · `SubscribePRTool` · `ListPeersTool` · `CtxInspectTool`
+
+### 斜杠命令 — 可用
+
+`/add-dir` · `/advisor` · `/agents` · `/branch` · `/btw` · `/chrome` · `/clear` · `/color` · `/compact` · `/config` · `/context` · `/copy` · `/cost` · `/desktop` · `/diff` · `/doctor` · `/effort` · `/exit` · `/export` · `/extra-usage` · `/fast` · `/feedback` · `/heapdump` · `/help` · `/helpc` · `/hooks` · `/ide` · `/init` · `/install-github-app` · `/install-slack-app` · `/keybindings` · `/login` · `/logout` · `/loop` · `/mcp` · `/memory` · `/mobile` · `/model` · `/output-style` · `/passes` · `/permissions` · `/plan` · `/plugin` · `/pr-comments` · `/privacy-settings` · `/rate-limit-options` · `/release-notes` · `/reload-plugins` · `/remote-env` · `/rename` · `/resume` · `/review` · `/ultrareview` · `/rewind` · `/sandbox-toggle` · `/security-review` · `/session` · `/skills` · `/stats` · `/status` · `/statusline` · `/stickers` · `/tasks` · `/theme` · `/think-back` · `/upgrade` · `/usage` · `/insights` · `/vim` · `/buddy`
+
+### CLI 子命令
+
+| 子命令 | 说明 |
+|--------|------|
+| `claude`（默认） | 主 REPL / 交互 / print 模式 |
+| `claude mcp serve/add/remove/list/get/...` | MCP 服务管理 |
+| `claude auth login/status/logout` | 认证管理 |
+| `claude plugin validate/list/install/...` | 插件管理 |
+| `claude setup-token` | 长效 Token 配置 |
+| `claude agents` | 代理列表 |
+| `claude doctor` | 健康检查 |
+| `claude update` / `upgrade` | 自动更新 |
+| `claude install [target]` | Native 安装 |
+| `claude auto-mode` | 对话分类器模式（`TRANSCRIPT_CLASSIFIER` 已启用） |
+
+### 内部包 (`packages/`)
+
+| 包 | 状态 | 说明 |
+|------|------|------|
+| `color-diff-napi` | ✅ | 完整 TypeScript 实现（语法高亮 diff） |
+| `audio-capture-napi` | ✅ | 跨平台音频录制（SoX/arecord） |
+| `image-processor-napi` | ✅ | macOS 剪贴板图片读取（osascript + sharp） |
+| `modifiers-napi` | ✅ | macOS 修饰键检测（bun:ffi + CoreGraphics） |
+| `url-handler-napi` | ❌ | stub，返回 null |
+| `@ant/computer-use-input` | ✅ | macOS 键鼠模拟（AppleScript/JXA/CGEvent） |
+| `@ant/computer-use-swift` | ✅ | macOS 显示器/应用管理/截图（JXA/screencapture） |
+| `@ant/computer-use-mcp` | ⚠️ | 类型安全 stub（完整类型定义但函数返回空值） |
+
+## 项目结构
+
+```
+src/
+├── entrypoints/        # 启动入口（cli.tsx, init.ts）— 含 MACRO/feature polyfill
+├── screens/            # REPL 交互界面（5000+ 行）
+├── services/
+│   ├── api/            # API 客户端（Anthropic / Bedrock / Vertex / Azure / OpenRouter）
+│   ├── compact/        # 对话压缩（auto / micro / API / smart）
+│   ├── mcp/            # MCP 协议实现（12000+ 行）
+│   ├── oauth/          # OAuth 认证
+│   └── plugins/        # 插件基础设施
+├── tools/              # 40+ 工具（Bash / File / Grep / Agent 等）
+├── components/         # Ink/React 终端 UI 组件
+├── state/              # Zustand 状态管理
+├── utils/
+│   ├── agentGuardrails.ts   # Agent 安全护栏（新增）
+│   └── model/providers.ts   # Provider 选择逻辑
+├── context.ts          # 系统提示词构建（git 状态、日期、CLAUDE.md）
+├── query.ts            # 核心 API 查询函数（1700+ 行）
+└── QueryEngine.ts      # 对话编排引擎（1300+ 行）
+packages/               # Monorepo workspace 子包
+scripts/                # 构建与维护脚本
+build.ts                # 构建脚本（Bun.build + code splitting）
+```
+
+## 配置
+
+### Bash 命令过滤
+
+```bash
+# 允许/拒绝特定命令模式
+export GODER_BASH_ALLOW="git:*,npm:*"
+export GODER_BASH_DENY="rm:-rf /,mkfs:*,dd:if=/dev/zero"
+```
+
+支持精确匹配、前缀通配和正则表达式。也可在 `~/.claude/settings.json` 中配置。
+
+### Agent 护栏
+
+```bash
+export GODER_MAX_TURNS=100        # 最大对话轮次（默认 100）
+export GODER_MAX_BUDGET_USD=5     # 最大费用预算（默认 $5）
+```
+
+### 严格错误模式
+
+```bash
+bun run dev -- --hard-fail        # 遇到错误立即终止进程
+```
+
+## 技术说明
+
+### 运行时 Polyfill
+
+入口文件 `src/entrypoints/cli.tsx` 顶部注入了必要的 polyfill：
+- `feature()` — 通过 `ENABLED_FEATURES` 集合选择性启用 feature flag
+- `globalThis.MACRO` — 模拟构建时宏注入（VERSION 等）
+- `BUILD_TARGET`、`BUILD_ENV`、`INTERFACE_TYPE` 全局变量
+
+### Monorepo
+
+项目采用 Bun workspaces 管理内部包。原先手工放在 `node_modules/` 下的 stub 已统一迁入 `packages/`，通过 `workspace:*` 解析。
+
+### 类型系统
+
+约 1341 个 tsc 错误，均来自反编译过程（主要是 `unknown`/`never`/`{}` 类型），不影响 Bun 运行时执行。
+
+## 注意事项
+
+- 本项目是逆向工程产物，仅供学习和研究用途
+- 配置目录（`~/.claude/`）、会话（`goder-sessions`）、项目（`goder-projects`）使用独立命名空间，不会污染原版 Claude Code 的数据
+- 原版 Claude Code 的所有权利归 [Anthropic](https://www.anthropic.com/) 所有
