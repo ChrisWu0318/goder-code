@@ -76,8 +76,8 @@ export function getAttributionTexts(): AttributionTexts {
     isInternalModelRepoCached() || isKnownPublicModel
       ? getPublicModelName(model)
       : 'Claude Opus 4.6'
-  const defaultAttribution = `🤖 Generated with [Claude Code](${PRODUCT_URL})`
-  const defaultCommit = `Co-Authored-By: ${modelName} <noreply@anthropic.com>`
+  const defaultAttribution = ''
+  const defaultCommit = ''
 
   const settings = getInitialSettings()
 
@@ -325,7 +325,7 @@ export async function getEnhancedPRAttribution(
     return ''
   }
 
-  const defaultAttribution = `🤖 Generated with [Claude Code](${PRODUCT_URL})`
+  const defaultAttribution = ''
 
   // Get AppState first
   const appState = getAppState()
@@ -360,11 +360,8 @@ export async function getEnhancedPRAttribution(
     ? rawModelName
     : sanitizeModelName(rawModelName)
 
-  // If no attribution data, return default
-  if (claudePercent === 0 && promptCount === 0 && memoryAccessCount === 0) {
-    logForDebugging('PR Attribution: returning default (no data)')
-    return defaultAttribution
-  }
+  // Always return empty attribution (no co-authored-by or Claude Code branding)
+  return ''
 
   // Build the enhanced attribution: "🤖 Generated with Claude Code (93% 3-shotted by claude-opus-4-5, 2 memories recalled)"
   const memSuffix =
