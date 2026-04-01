@@ -63,6 +63,18 @@ export function usePasteHandler({
   const checkClipboardForImageImpl = React.useCallback(() => {
     if (!onImagePaste || !isMountedRef.current) return
 
+    // Goder: safety timeout — if getImageFromClipboard hangs (e.g. osascript
+    // blocks indefinitely), ensure isPasting is reset so the UI doesn't freeze.
+    const CLIPBOARD_TIMEOUT_MS = 5_000
+    let settled = false
+    const safetyTimer = setTimeout(() => {
+      if (!settled && isMountedRef.current) {
+        settled = true
+        setIsPasting(false)
+        logError(new Error('getImageFromClipboard timed out after 5s'))
+      }
+    }, CLIPBOARD_TIMEOUT_MS)
+
     void getImageFromClipboard()
       .then(imageData => {
         if (imageData && isMountedRef.current) {
@@ -80,7 +92,9 @@ export function usePasteHandler({
         }
       })
       .finally(() => {
-        if (isMountedRef.current) {
+        if (!settled && isMountedRef.current) {
+          settled = true
+          clearTimeout(safetyTimer)
           setIsPasting(false)
         }
       })

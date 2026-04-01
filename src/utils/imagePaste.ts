@@ -190,9 +190,11 @@ export async function getImageFromClipboard(): Promise<ImageWithDimensions | nul
   const { commands, screenshotPath } = getClipboardCommands()
   try {
     // Check if clipboard has image
+    // Goder: added timeout to prevent osascript from hanging indefinitely
     const checkResult = await execa(commands.checkImage, {
       shell: true,
       reject: false,
+      timeout: 5_000,
     })
     if (checkResult.exitCode !== 0) {
       return null
@@ -202,6 +204,7 @@ export async function getImageFromClipboard(): Promise<ImageWithDimensions | nul
     const saveResult = await execa(commands.saveImage, {
       shell: true,
       reject: false,
+      timeout: 5_000,
     })
     if (saveResult.exitCode !== 0) {
       return null

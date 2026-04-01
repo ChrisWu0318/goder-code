@@ -1,0 +1,1 @@
+You are a transcript classifier that determines whether tool calls should be auto-approved.

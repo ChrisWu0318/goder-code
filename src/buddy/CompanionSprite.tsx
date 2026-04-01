@@ -10,6 +10,7 @@ import type { AppState } from '../state/AppStateStore.js';
 import { getGlobalConfig } from '../utils/config.js';
 import { isFullscreenActive } from '../utils/fullscreen.js';
 import type { Theme } from '../utils/theme.js';
+import { logForDebugging } from '../utils/debug.js';
 import { getCompanion } from './companion.js';
 import { renderFace, renderSprite, spriteFrameCount } from './sprites.js';
 import { RARITY_COLORS } from './types.js';
@@ -212,9 +213,19 @@ export function CompanionSprite(): React.ReactNode {
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tick intentionally captured at reaction-change, not tracked
   }, [reaction, setAppState]);
-  if (!feature('BUDDY')) return null;
+  if (!feature('BUDDY')) {
+    logForDebugging('[CompanionSprite] feature BUDDY is OFF — not rendering')
+    return null;
+  }
   const companion = getCompanion();
-  if (!companion || getGlobalConfig().companionMuted) return null;
+  if (!companion) {
+    logForDebugging('[CompanionSprite] getCompanion() returned undefined — not rendering')
+    return null;
+  }
+  if (getGlobalConfig().companionMuted) {
+    logForDebugging('[CompanionSprite] companion is muted — not rendering')
+    return null;
+  }
   const color = RARITY_COLORS[companion.rarity];
   const colWidth = spriteColWidth(stringWidth(companion.name));
   const bubbleAge = reaction ? tick - lastSpokeTick.current : 0;

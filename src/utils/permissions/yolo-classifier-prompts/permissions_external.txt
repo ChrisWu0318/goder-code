@@ -1,0 +1,19 @@
+Auto-mode permission defaults for external users.
+
+<user_allow_rules_to_replace>
+- Read files in the project directory
+- Run safe shell commands (ls, cat, grep, git status, git diff)
+- Write to files in the project directory
+</user_allow_rules_to_replace>
+
+<user_deny_rules_to_replace>
+- Delete files outside the project directory
+- Run destructive commands (rm -rf, mkfs, dd)
+- Access credentials or secrets files
+</user_deny_rules_to_replace>
+
+<user_environment_to_replace>
+- Operating system and shell environment
+- Current working directory
+- Git repository context
+</user_environment_to_replace>

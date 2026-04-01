@@ -1,0 +1,1 @@
+Auto-mode permission defaults for Anthropic internal users.

@@ -147,6 +147,46 @@ export GODER_MAX_BUDGET_USD=5
 | `MCP_SKILLS` | MCP 服务器提供的可调用 skills/prompts |
 | `HARD_FAIL` | 严格错误处理模式（`--hard-fail` 使错误立即终止进程） |
 
+### 稳定性与健壮性增强
+
+**5. 流式看门狗** (`src/services/api/claude.ts`)
+
+防止 API 流式响应卡死：
+- 默认启用（原版需手动设 `CLAUDE_ENABLE_STREAM_WATCHDOG=1`）
+- 空闲超时 90s → 45s，卡顿检测 30s → 15s
+- 新增卡顿熔断器：连续 3 次 stall 自动终止流
+
+```bash
+export CLAUDE_STREAM_IDLE_TIMEOUT_MS=45000   # 可自定义空闲超时
+```
+
+**6. OpenAI 兼容模式上下文窗口自动识别** (`src/utils/context.ts`)
+
+原版默认 200K tokens，使用第三方模型时不会触发自动压缩导致上下文溢出。现已内置模型名 → 上下文窗口映射表（支持 Claude/GPT/DeepSeek/Qwen/Gemini/Llama/Mistral），未知模型保守默认 64K。
+
+```bash
+export CLAUDE_CODE_MAX_CONTEXT_TOKENS=128000  # 手动覆盖上下文窗口大小
+```
+
+**7. 图片粘贴超时保护** (`src/hooks/usePasteHandler.ts`, `src/utils/imagePaste.ts`)
+
+修复粘贴图片时 osascript 可能永远不返回导致 UI 卡在 "Pasting text…" 的问题，添加 5 秒安全超时。
+
+**8. 上下文链完整性保护** (`src/utils/sessionStorage.ts`, `src/query.ts`)
+
+- `buildConversationChain()` 中 parentUuid 找不到时记录错误而非静默截断
+- fallback 触发时记录被清空的消息数量
+- 双重压缩失败时记录当前消息数和 token 估计值
+
+**9. 工具错误消息强化** (`src/tools/FileWriteTool/`, `FileEditTool/`, `NotebookEditTool/`)
+
+Write/Edit/NotebookEdit 工具的错误消息包含具体文件名，并明确指示模型 "立即修复并重试"，防止模型在工具错误后跑偏到无关任务。
+
+**10. 系统提示防跑偏指令** (`src/constants/prompts.ts`)
+
+- 工具错误恢复：要求 tool error 后立即修复重试，不得放弃或切换任务
+- 禁止虚假拒绝：不得在合法任务上声称违反规则
+
 ### 中文帮助
 
 输入 `/helpc` 查看完整的中文帮助文档，包含所有功能、命令、快捷键和配置说明。
@@ -277,7 +317,7 @@ src/
 └── QueryEngine.ts      # 对话编排引擎（1300+ 行）
 packages/               # Monorepo workspace 子包
 scripts/                # 构建与维护脚本
-build.ts                # 构建脚本（Bun.build + code splitting）
+build.ts                # 构建脚本（bun build CLI + --feature flags + code splitting）
 ```
 
 ## 配置
@@ -307,10 +347,19 @@ bun run dev -- --hard-fail        # 遇到错误立即终止进程
 
 ## 技术说明
 
+### 构建系统
+
+`build.ts` 使用 `bun build` CLI 命令（而非 `Bun.build()` API）进行打包，因为 CLI 支持 `--feature=FLAG` 参数控制 `bun:bundle` 的 `feature()` 函数。`Bun.build()` API 不支持 `bun:bundle` 插件，会导致所有 feature flag 在打包时返回 `false`，tree-shake 掉所有 feature-gated 代码。
+
+构建流程：
+1. 清理 `dist/` 目录
+2. 调用 `bun build --splitting --target bun --feature=BUDDY --feature=BG_SESSIONS ...`
+3. 后处理：为 Node.js 兼容性修补 `import.meta.require`
+
 ### 运行时 Polyfill
 
 入口文件 `src/entrypoints/cli.tsx` 顶部注入了必要的 polyfill：
-- `feature()` — 通过 `ENABLED_FEATURES` 集合选择性启用 feature flag
+- `feature()` — 通过 `ENABLED_FEATURES` 集合选择性启用 feature flag（开发模式）
 - `globalThis.MACRO` — 模拟构建时宏注入（VERSION 等）
 - `BUILD_TARGET`、`BUILD_ENV`、`INTERFACE_TYPE` 全局变量
 

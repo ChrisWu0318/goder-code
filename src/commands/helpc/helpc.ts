@@ -24,7 +24,15 @@ export const call: LocalCommandCall = async () => {
                     - 成本上限: $5 (GODER_MAX_BUDGET_USD)
                     - 重复检测: 连续5次相同调用自动停止
                     - 连续错误: 3次后停止
+  流式看门狗        默认启用，防止连接挂死：
+                    - 空闲超时: 45s (CLAUDE_STREAM_IDLE_TIMEOUT_MS)
+                    - 卡顿检测: 15s 无数据即报警
+                    - 熔断器: 连续3次卡顿自动终止流
+                    - 可关闭: CLAUDE_ENABLE_STREAM_WATCHDOG=0
   智能压缩          对话过长时自动分段摘要，不丢失上下文
+  上下文窗口        OpenAI 兼容模式自动识别模型上下文大小
+                    已内置: Claude/GPT/DeepSeek/Qwen/Gemini/Llama/Mistral
+                    手动覆盖: CLAUDE_CODE_MAX_CONTEXT_TOKENS=64000
 
 【常用命令】
   /help             英文帮助

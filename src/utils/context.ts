@@ -8,6 +8,55 @@ import { getModelCapability } from './model/modelCapabilities.js'
 // Model context window size (200k tokens for all models right now)
 export const MODEL_CONTEXT_WINDOW_DEFAULT = 200_000
 
+// Goder: context window lookup for OpenAI-compatible models.
+// Maps model name substrings to their actual context window sizes.
+// When no match is found, defaults to 64K as a safe conservative value.
+const OPENAI_COMPAT_CONTEXT_WINDOWS: Array<{ pattern: string; tokens: number }> = [
+  // Claude models via OpenRouter
+  { pattern: 'claude-opus',     tokens: 200_000 },
+  { pattern: 'claude-sonnet',   tokens: 200_000 },
+  { pattern: 'claude-haiku',    tokens: 200_000 },
+  { pattern: 'claude-3',        tokens: 200_000 },
+  // GPT models
+  { pattern: 'gpt-4.1',         tokens: 1_000_000 },
+  { pattern: 'gpt-4o',          tokens: 128_000 },
+  { pattern: 'gpt-4-turbo',     tokens: 128_000 },
+  { pattern: 'gpt-4',           tokens: 8_192 },
+  { pattern: 'o3',              tokens: 200_000 },
+  { pattern: 'o4-mini',         tokens: 200_000 },
+  // DeepSeek
+  { pattern: 'deepseek',        tokens: 64_000 },
+  // Qwen
+  { pattern: 'qwen3',           tokens: 128_000 },
+  { pattern: 'qwen2.5',         tokens: 128_000 },
+  { pattern: 'qwen',            tokens: 32_000 },
+  // Gemini
+  { pattern: 'gemini-2.5',      tokens: 1_000_000 },
+  { pattern: 'gemini-2',        tokens: 1_000_000 },
+  { pattern: 'gemini-1.5',      tokens: 1_000_000 },
+  { pattern: 'gemini',          tokens: 128_000 },
+  // Llama
+  { pattern: 'llama-4',         tokens: 128_000 },
+  { pattern: 'llama-3.3',       tokens: 128_000 },
+  { pattern: 'llama-3.1',       tokens: 128_000 },
+  { pattern: 'llama-3',         tokens: 8_192 },
+  { pattern: 'llama',           tokens: 8_192 },
+  // Mistral
+  { pattern: 'mistral-large',   tokens: 128_000 },
+  { pattern: 'mistral',         tokens: 32_000 },
+]
+
+const OPENAI_COMPAT_DEFAULT_CONTEXT = 64_000
+
+function getOpenAICompatContextWindow(model: string): number {
+  for (const entry of OPENAI_COMPAT_CONTEXT_WINDOWS) {
+    if (model.includes(entry.pattern)) {
+      return entry.tokens
+    }
+  }
+  return OPENAI_COMPAT_DEFAULT_CONTEXT
+}
+
 // Maximum output tokens for compact operations
 export const COMPACT_MAX_OUTPUT_TOKENS = 20_000
 
@@ -52,18 +101,22 @@ export function getContextWindowForModel(
   model: string,
   betas?: string[],
 ): number {
-  // Allow override via environment variable (ant-only)
-  // This takes precedence over all other context window resolution, including 1M detection,
-  // so users can cap the effective context window for local decisions (auto-compact, etc.)
-  // while still using a 1M-capable endpoint.
-  if (
-    process.env.USER_TYPE === 'ant' &&
-    process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS
-  ) {
+  // Allow override via environment variable.
+  // Goder: removed ant-only restriction — essential for OpenAI-compat users
+  // to cap context window correctly for their provider/model.
+  if (process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS) {
     const override = parseInt(process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS, 10)
     if (!isNaN(override) && override > 0) {
       return override
     }
+  }
+
+  // Goder: for OpenAI-compat providers, infer context window from model name.
+  // Without this, the default is 200K which is too large for most non-Claude
+  // models, causing autoCompact to never trigger and context to overflow.
+  if (process.env.CLAUDE_CODE_USE_OPENAI_COMPAT) {
+    const m = (process.env.OPENAI_MODEL || model).toLowerCase()
+    return getOpenAICompatContextWindow(m)
   }
 
   // [1m] suffix — explicit client-side opt-in, respected over all detection
