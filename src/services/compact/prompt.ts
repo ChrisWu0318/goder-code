@@ -1,4 +1,5 @@
 import { feature } from 'bun:bundle'
+import { getCwdState, getProjectRoot } from '../../bootstrap/state.js'
 import type { PartialCompactDirection } from '../../types/message.js'
 
 // Dead code elimination: conditional import for proactive mode
@@ -61,10 +62,13 @@ const DETAILED_ANALYSIS_INSTRUCTION_PARTIAL = `Before providing your final summa
 const BASE_COMPACT_PROMPT = `Your task is to create a detailed summary of the conversation so far, paying close attention to the user's explicit requests and your previous actions.
 This summary should be thorough in capturing technical details, code patterns, and architectural decisions that would be essential for continuing development work without losing context.
 
+IMPORTANT: You MUST include the working directory and project information at the very top of your summary to anchor the context.
+
 ${DETAILED_ANALYSIS_INSTRUCTION_BASE}
 
 Your summary should include the following sections:
 
+0. Working Context: State the current working directory, project name, and what repository/codebase is being worked on. This MUST be the first section.
 1. Primary Request and Intent: Capture all of the user's explicit requests and intents in detail
 2. Key Technical Concepts: List all important technical concepts, technologies, and frameworks discussed.
 3. Files and Code Sections: Enumerate specific files and code sections examined, modified, or created. Pay special attention to the most recent messages and include full code snippets where applicable and include a summary of why this file read or edit is important.
@@ -144,10 +148,13 @@ When you are using compact - please focus on test output and code changes. Inclu
 
 const PARTIAL_COMPACT_PROMPT = `Your task is to create a detailed summary of the RECENT portion of the conversation — the messages that follow earlier retained context. The earlier messages are being kept intact and do NOT need to be summarized. Focus your summary on what was discussed, learned, and accomplished in the recent messages only.
 
+IMPORTANT: You MUST include the working directory and project information at the very top of your summary to anchor the context.
+
 ${DETAILED_ANALYSIS_INSTRUCTION_PARTIAL}
 
 Your summary should include the following sections:
 
+0. Working Context: State the current working directory, project name, and what repository/codebase is being worked on. This MUST be the first section.
 1. Primary Request and Intent: Capture the user's explicit requests and intents from the recent messages
 2. Key Technical Concepts: List important technical concepts, technologies, and frameworks discussed recently.
 3. Files and Code Sections: Enumerate specific files and code sections examined, modified, or created. Include full code snippets where applicable and include a summary of why this file read or edit is important.
@@ -207,10 +214,13 @@ Please provide your summary based on the RECENT messages only (after the retaine
 // precede kept recent messages, hence "Context for Continuing Work" section.
 const PARTIAL_COMPACT_UP_TO_PROMPT = `Your task is to create a detailed summary of this conversation. This summary will be placed at the start of a continuing session; newer messages that build on this context will follow after your summary (you do not see them here). Summarize thoroughly so that someone reading only your summary and then the newer messages can fully understand what happened and continue the work.
 
+IMPORTANT: You MUST include the working directory and project information at the very top of your summary to anchor the context.
+
 ${DETAILED_ANALYSIS_INSTRUCTION_BASE}
 
 Your summary should include the following sections:
 
+0. Working Context: State the current working directory, project name, and what repository/codebase is being worked on. This MUST be the first section.
 1. Primary Request and Intent: Capture the user's explicit requests and intents in detail
 2. Key Technical Concepts: List important technical concepts, technologies, and frameworks discussed.
 3. Files and Code Sections: Enumerate specific files and code sections examined, modified, or created. Include full code snippets where applicable and include a summary of why this file read or edit is important.
@@ -342,7 +352,14 @@ export function getCompactUserSummaryMessage(
 ): string {
   const formattedSummary = formatCompactSummary(summary)
 
-  let baseSummary = `This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+  // Include working directory anchor to prevent task drift after compaction
+  const cwd = getCwdState()
+  const projectRoot = getProjectRoot()
+  const cwdAnchor = cwd
+    ? `\n\n**WORKING CONTEXT (DO NOT IGNORE):**\n- Working directory: ${cwd}\n- Project root: ${projectRoot}\n- You MUST only work on files within this project. Do NOT create or modify files outside this directory.`
+    : ''
+
+  let baseSummary = `This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.${cwdAnchor}
 
 ${formattedSummary}`
 
@@ -356,7 +373,8 @@ ${formattedSummary}`
 
   if (suppressFollowUpQuestions) {
     let continuation = `${baseSummary}
-Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.`
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
+CRITICAL: Stay focused on the CURRENT task described in the summary above. Do NOT switch to unrelated tasks or modify files outside the project directory.`
 
     if (
       (feature('PROACTIVE') || feature('KAIROS')) &&
