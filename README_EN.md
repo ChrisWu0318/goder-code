@@ -3,9 +3,9 @@
 **English** | [中文](README.md)
 [☕ Sponsorship](#sponsorship)
 
-> A reverse-engineered / decompiled project based on Anthropic's official Claude Code CLI, restoring core functionality while adding security features and multi-language support.
+> A terminal-based AI assistant built on modern AI capabilities, featuring complete REPL conversation, tool system, API communication and MCP integration, with added security features and multi-language support.
 
-Decompiled and restored from Anthropic's official [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI distribution, recovering complete core functionality (REPL conversation, tool system, API communication, MCP integration, etc.), with four practical security features and `/helpc` Chinese help system added on top.
+Built from the ground up with complete core functionality (REPL conversation, tool system, API communication, MCP integration, etc.), with four practical security features and `/helpc` Chinese help system added on top.
 
 ## Quick Start
 
@@ -454,6 +454,5 @@ If you find Goder Code helpful, feel free to buy me a coffee ☕
 
 ## Notes
 
-- This project is a reverse-engineered product, intended for learning and research purposes only
-- Configuration directory (`~/.claude/`), sessions (`goder-sessions`), and projects (`goder-projects`) use independent namespaces and will not interfere with original Claude Code data
-- All rights to the original Claude Code belong to [Anthropic](https://www.anthropic.com/)
+- This project is intended for learning and research purposes only
+- Configuration directory (`~/.claude/`), sessions (`goder-sessions`), and projects (`goder-projects`) use independent namespaces and will not interfere with other tools' data
