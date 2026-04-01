@@ -146,7 +146,9 @@ export async function connectHttpSTT(
         const blob = new Blob([wav], { type: 'audio/wav' })
         formData.append('file', blob, 'recording.wav')
         formData.append('model', provider.model)
-        if (options?.language) {
+        // When language is 'auto' (or unset), omit the parameter so Whisper
+        // auto-detects the spoken language. Otherwise pin to the requested code.
+        if (options?.language && options.language !== 'auto') {
           formData.append('language', options.language)
         }
 

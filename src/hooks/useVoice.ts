@@ -40,7 +40,12 @@ const DEFAULT_STT_LANGUAGE = 'en'
 // 1008 "Unsupported language" and voice breaks.  Unsupported languages
 // fall back to DEFAULT_STT_LANGUAGE so recording still works.
 const LANGUAGE_NAME_TO_CODE: Record<string, string> = {
+  auto: 'auto',
   english: 'en',
+  chinese: 'zh',
+  中文: 'zh',
+  '中文（简体）': 'zh',
+  '中文（繁體）': 'zh',
   spanish: 'es',
   español: 'es',
   espanol: 'es',
@@ -91,7 +96,9 @@ const LANGUAGE_NAME_TO_CODE: Record<string, string> = {
 // Subset of the GrowthBook speech_to_text_voice_stream_config allowlist.
 // Sending a code not in the server allowlist closes the connection.
 const SUPPORTED_LANGUAGE_CODES = new Set([
+  'auto',
   'en',
+  'zh',
   'es',
   'fr',
   'ja',
