@@ -1,6 +1,7 @@
 # Goder Code
 
 **[English](README_EN.md)** | 中文
+[☕ 赞赏](#赞赏)
 
 > 一个对 Anthropic 官方 Claude Code CLI 的逆向工程 / 反编译项目，在还原核心功能的基础上新增安全特性与中文支持。
 

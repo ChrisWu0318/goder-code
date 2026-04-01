@@ -1,6 +1,7 @@
 # Goder Code
 
 **English** | [中文](README.md)
+[☕ Sponsorship](#sponsorship)
 
 > A reverse-engineered / decompiled project based on Anthropic's official Claude Code CLI, restoring core functionality while adding security features and multi-language support.
 
