@@ -410,20 +410,27 @@ bun run dev -- --hard-fail        # 遇到错误立即终止进程
 2. 调用 `bun build --splitting --target bun --feature=BUDDY --feature=BG_SESSIONS ...`
 3. 后处理：为 Node.js 兼容性修补 `import.meta.require`
 
+构建产物为 `dist/cli.js` 主入口 + 约 450 个 chunk 文件，同时支持 Bun 和 Node.js 启动。
+
 ### 运行时 Polyfill
 
-入口文件 `src/entrypoints/cli.tsx` 顶部注入了必要的 polyfill：
-- `feature()` — 通过 `ENABLED_FEATURES` 集合选择性启用 feature flag（开发模式）
-- `globalThis.MACRO` — 模拟构建时宏注入（VERSION 等）
-- `BUILD_TARGET`、`BUILD_ENV`、`INTERFACE_TYPE` 全局变量
+入口文件 `src/entrypoints/cli.tsx` 顶部注入了必要的 polyfill，使开发模式（`bun run dev`）无需构建即可运行：
+- `feature()` — 通过 `ENABLED_FEATURES` 集合选择性启用 feature flag（开发模式下从环境变量或默认值读取）
+- `globalThis.MACRO` — 模拟构建时宏注入（VERSION、BUILD_TIME 等）
+- `BUILD_TARGET`、`BUILD_ENV`、`INTERFACE_TYPE` 全局常量
 
 ### Monorepo
 
-项目采用 Bun workspaces 管理内部包。原先手工放在 `node_modules/` 下的 stub 已统一迁入 `packages/`，通过 `workspace:*` 解析。
+项目采用 Bun workspaces 管理内部包。原先手工放在 `node_modules/` 下的 stub 已统一迁入 `packages/`，通过 `workspace:*` 解析。内部包包括：
+- `color-diff-napi` — 语法高亮 diff（完整 TypeScript 实现）
+- `audio-capture-napi` — 跨平台音频录制
+- `image-processor-napi` — macOS 剪贴板图片读取
+- `modifiers-napi` — macOS 修饰键检测
+- `@ant/computer-use-*` — 计算机控制（键鼠模拟、显示器管理）
 
 ### 类型系统
 
-约 1341 个 tsc 错误，均来自反编译过程（主要是 `unknown`/`never`/`{}` 类型），不影响 Bun 运行时执行。
+约 1341 个 tsc 错误，均来自反编译过程（主要是 `unknown`/`never`/`{}` 类型），不影响 Bun 运行时执行。类型声明文件位于 `src/types/`，包括全局类型（`global.d.ts`）、内部模块类型（`internal-modules.d.ts`）和消息类型（`message.ts`）。
 
 ## 赞赏
 
