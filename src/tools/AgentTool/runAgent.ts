@@ -9,6 +9,18 @@ import {
   DEFAULT_AGENT_PROMPT,
   enhanceSystemPromptWithEnvDetails,
 } from '../../constants/prompts.js'
+
+/** Hard cap on agentic turns when neither the caller nor the agent definition
+ *  specifies a maxTurns value. Prevents runaway loops where the agent drifts
+ *  off-task and keeps iterating indefinitely. 30 turns is generous enough for
+ *  most multi-step tasks while still providing a safety net. */
+const DEFAULT_AGENT_MAX_TURNS = 30
+
+/** Default focus reminder injected every turn when the agent definition does
+ *  not provide its own criticalSystemReminder_EXPERIMENTAL. Keeps the agent
+ *  anchored to the original task and prevents context-drift. */
+const DEFAULT_CRITICAL_SYSTEM_REMINDER =
+  'Stay focused on the current task. Do not deviate from the original objective. After each step, verify you are still working toward the goal before proceeding.'
 import type { QuerySource } from '../../constants/querySource.js'
 import { getSystemContext, getUserContext } from '../../context.js'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
@@ -709,7 +721,8 @@ export async function* runAgent({
     shareSetAppState: !isAsync,
     shareSetResponseLength: true, // Both sync and async contribute to response metrics
     criticalSystemReminder_EXPERIMENTAL:
-      agentDefinition.criticalSystemReminder_EXPERIMENTAL,
+      agentDefinition.criticalSystemReminder_EXPERIMENTAL ??
+      DEFAULT_CRITICAL_SYSTEM_REMINDER,
     contentReplacementState,
   })
 
@@ -753,7 +766,7 @@ export async function* runAgent({
       canUseTool,
       toolUseContext: agentToolUseContext,
       querySource,
-      maxTurns: maxTurns ?? agentDefinition.maxTurns,
+      maxTurns: maxTurns ?? agentDefinition.maxTurns ?? DEFAULT_AGENT_MAX_TURNS,
     })) {
       onQueryProgress?.()
       // Forward subagent API request starts to parent's metrics display
