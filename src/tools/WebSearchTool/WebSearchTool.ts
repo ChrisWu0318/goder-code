@@ -2,7 +2,11 @@ import type {
   BetaContentBlock,
   BetaWebSearchTool20250305,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
-import { getAPIProvider } from 'src/utils/model/providers.js'
+import {
+  getAPIProvider,
+  isFirstPartyAnthropicBaseUrl,
+  isOpenRouterBaseUrl,
+} from 'src/utils/model/providers.js'
 import type { PermissionResult } from 'src/utils/permissions/PermissionResult.js'
 import { z } from 'zod/v4'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
@@ -15,6 +19,8 @@ import { getMainLoopModel, getSmallFastModel } from '../../utils/model/model.js'
 import { jsonParse, jsonStringify } from '../../utils/slowOperations.js'
 import { asSystemPrompt } from '../../utils/systemPromptType.js'
 import { getWebSearchPrompt, WEB_SEARCH_TOOL_NAME } from './prompt.js'
+import { searchWithOpenRouter } from './openrouter.js'
+import { getSerperApiKey, searchWithSerper } from './serper.js'
 import {
   getToolUseSummary,
   renderToolResultMessage,
@@ -72,6 +78,21 @@ export type Output = z.infer<OutputSchema>
 export type { WebSearchProgress } from '../../types/tools.js'
 
 import type { WebSearchProgress } from '../../types/tools.js'
+
+/**
+ * Whether to use Anthropic's server-side web_search_20250305 tool.
+ * Only works with actual Anthropic API endpoints (firstParty + real base URL,
+ * vertex, foundry). For proxies / third-party models, we fall back to Serper.
+ */
+function supportsAnthropicServerSearch(): boolean {
+  const provider = getAPIProvider()
+  if (provider === 'vertex' || provider === 'foundry') {
+    return true
+  }
+  // firstParty but via a proxy (ANTHROPIC_BASE_URL pointing elsewhere)
+  // doesn't support server-side tools
+  return provider === 'firstParty' && isFirstPartyAnthropicBaseUrl()
+}
 
 function makeToolSchema(input: Input): BetaWebSearchTool20250305 {
   return {
@@ -166,12 +187,22 @@ export const WebSearchTool = buildTool({
     return summary ? `Searching for ${summary}` : 'Searching the web'
   },
   isEnabled() {
+    // Always enable if Serper API key is configured (works with any provider)
+    if (getSerperApiKey()) {
+      return true
+    }
+
+    // Enable for OpenRouter (uses openrouter:web_search server tool)
+    if (isOpenRouterBaseUrl()) {
+      return true
+    }
+
     const provider = getAPIProvider()
     const model = getMainLoopModel()
 
-    // Enable for firstParty
+    // Enable for firstParty only if actually pointing at Anthropic's API
     if (provider === 'firstParty') {
-      return true
+      return isFirstPartyAnthropicBaseUrl()
     }
 
     // Enable for Vertex AI with supported models (Claude 4.0+)
@@ -254,6 +285,65 @@ export const WebSearchTool = buildTool({
   async call(input, context, _canUseTool, _parentMessage, onProgress) {
     const startTime = performance.now()
     const { query } = input
+
+    // Route: use external search when Anthropic server-side search is unavailable.
+    // Priority: OpenRouter > Serper > Anthropic server-side
+    const useOpenRouter =
+      !supportsAnthropicServerSearch() && isOpenRouterBaseUrl()
+    const useSerper =
+      !supportsAnthropicServerSearch() && !useOpenRouter && !!getSerperApiKey()
+
+    if (useOpenRouter || useSerper) {
+      if (onProgress) {
+        onProgress({
+          toolUseID: 'search-progress-1',
+          data: { type: 'query_update', query },
+        })
+      }
+
+      const externalResult = useOpenRouter
+        ? await searchWithOpenRouter(
+            query,
+            context.options.mainLoopModel,
+            context.abortController.signal,
+          )
+        : await searchWithSerper(query, context.abortController.signal)
+
+      if (onProgress) {
+        const hitCount = externalResult.results.filter(
+          r => r != null && typeof r !== 'string',
+        ).length
+        onProgress({
+          toolUseID: 'search-progress-2',
+          data: {
+            type: 'search_results_received',
+            resultCount:
+              hitCount > 0
+                ? externalResult.results.reduce(
+                    (n, r) =>
+                      n +
+                      (r != null && typeof r !== 'string'
+                        ? r.content?.length ?? 0
+                        : 0),
+                    0,
+                  )
+                : 0,
+            query,
+          },
+        })
+      }
+
+      const endTime = performance.now()
+      return {
+        data: {
+          query,
+          results: externalResult.results,
+          durationSeconds: (endTime - startTime) / 1000,
+        },
+      }
+    }
+
+    // Anthropic server-side web search path
     const userMessage = createUserMessage({
       content: 'Perform a web search for the query: ' + query,
     })
@@ -270,15 +360,13 @@ export const WebSearchTool = buildTool({
       systemPrompt: asSystemPrompt([
         'You are an assistant for performing a web search tool use',
       ]),
-      thinkingConfig: useHaiku
-        ? { type: 'disabled' as const }
-        : context.options.thinkingConfig,
+      thinkingConfig: { type: 'disabled' as const },
       tools: [],
       signal: context.abortController.signal,
       options: {
         getToolPermissionContext: async () => appState.toolPermissionContext,
         model: useHaiku ? getSmallFastModel() : context.options.mainLoopModel,
-        toolChoice: useHaiku ? { type: 'tool', name: 'web_search' } : undefined,
+        toolChoice: { type: 'tool', name: 'web_search' },
         isNonInteractiveSession: context.options.isNonInteractiveSession,
         hasAppendSystemPrompt: !!context.options.appendSystemPrompt,
         extraToolSchemas: [toolSchema],
