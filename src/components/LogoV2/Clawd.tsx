@@ -8,51 +8,40 @@ type Props = {
   pose?: ClawdPose;
 };
 
-// Cute West Highland White Terrier (Westie) ASCII art!
-// 4 rows: fluffy head, ears+eyes, nose+mouth, fluffy chin
-type WestiePose = {
-  rows: string[];
-};
-
-const POSES: Record<ClawdPose, WestiePose> = {
-  default: {
-    rows: [
-      ' ╭━╮   ╭━╮ ',
-      ' ┃▕ ╰─╯ ▏┃ ',
-      ' ╰┃ ●▽● ┃╯ ',
-      '   ╰─∪─╯   ',
-    ],
-  },
-  'look-left': {
-    rows: [
-      ' ╭━╮   ╭━╮ ',
-      ' ┃▕ ╰─╯ ▏┃ ',
-      ' ╰┃●  ▽●┃╯ ',
-      '   ╰─∪─╯   ',
-    ],
-  },
-  'look-right': {
-    rows: [
-      ' ╭━╮   ╭━╮ ',
-      ' ┃▕ ╰─╯ ▏┃ ',
-      ' ╰┃ ●▽ ●┃╯ ',
-      '   ╰─∪─╯   ',
-    ],
-  },
-  'arms-up': {
-    rows: [
-      ' ╭━╮   ╭━╮ ',
-      ' ┃▕ ╰─╯ ▏┃ ',
-      ' ╰┃ ◕▽◕ ┃╯ ',
-      '   ╰─∪─╯   ',
-    ],
-  },
+// Capybara logo for Goder Code startup screen.
+// Based on the buddy sprite but rendered with fixed eyes.
+const POSES: Record<ClawdPose, string[]> = {
+  default: [
+    '  n______n  ',
+    ' ( ●    ● ) ',
+    ' (   oo   ) ',
+    '  `------´  ',
+  ],
+  'look-left': [
+    '  n______n  ',
+    ' (●    ●  ) ',
+    ' (   oo   ) ',
+    '  `------´  ',
+  ],
+  'look-right': [
+    '  n______n  ',
+    ' (  ●    ●) ',
+    ' (   oo   ) ',
+    '  `------´  ',
+  ],
+  'arms-up': [
+    '    ~  ~    ',
+    '  u______n  ',
+    ' ( ◕    ◕ ) ',
+    ' (   oo   ) ',
+    '  `------´  ',
+  ],
 };
 export function Clawd({ pose = 'default' }: Props): React.ReactNode {
-  const p = POSES[pose];
+  const rows = POSES[pose];
   return (
     <Box flexDirection="column">
-      {p.rows.map((line, i) => (
+      {rows.map((line, i) => (
         <Text key={i} color="clawd_body">{line}</Text>
       ))}
     </Box>
