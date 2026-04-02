@@ -242,6 +242,7 @@ export type GlobalConfig = {
   hasUsedBackgroundTask?: boolean // Whether the user has backgrounded a task (Ctrl+B)
   queuedCommandUpHintCount?: number // Counter for how many times the user has seen the queued command up hint
   diffTool?: DiffTool // Which tool to use for displaying diffs (terminal or vscode)
+  hudEnabled?: boolean // Whether the built-in HUD statusline is enabled
 
   // Terminal setup state tracking
   iterm2SetupInProgress?: boolean

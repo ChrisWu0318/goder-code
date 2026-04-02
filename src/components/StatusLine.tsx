@@ -15,7 +15,7 @@ import { getRawUtilization } from '../services/claudeAiLimits.js';
 import type { Message } from '../types/message.js';
 import type { StatusLineCommandInput } from '../types/statusLine.js';
 import type { VimMode } from '../types/textInputTypes.js';
-import { checkHasTrustDialogAccepted } from '../utils/config.js';
+import { checkHasTrustDialogAccepted, getGlobalConfig } from '../utils/config.js';
 import { calculateContextPercentages, getContextWindowForModel } from '../utils/context.js';
 import { getCwd } from '../utils/cwd.js';
 import { logForDebugging } from '../utils/debug.js';
@@ -26,11 +26,23 @@ import { getRuntimeMainLoopModel, type ModelName, renderModelName } from '../uti
 import { getCurrentSessionTitle } from '../utils/sessionStorage.js';
 import { doesMostRecentAssistantMessageExceed200k, getCurrentUsage } from '../utils/tokens.js';
 import { getCurrentWorktreeSession } from '../utils/worktree.js';
+import { renderHud } from '../hud/renderer.js';
 import { isVimModeEnabled } from './PromptInput/utils.js';
+
+export function isHudEnabled(): boolean {
+  try {
+    return getGlobalConfig().hudEnabled === true;
+  } catch {
+    return false;
+  }
+}
+
 export function statusLineShouldDisplay(settings: ReadonlySettings): boolean {
   // Assistant mode: statusline fields (model, permission mode, cwd) reflect the
   // REPL/daemon process, not what the agent child is actually running. Hide it.
   if (feature('KAIROS') && getKairosActive()) return false;
+  // Internal HUD overrides external statusLine config
+  if (isHudEnabled()) return true;
   return settings?.statusLine !== undefined;
 }
 function buildStatusLineCommandInput(permissionMode: PermissionMode, exceeds200kTokens: boolean, settings: ReadonlySettings, messages: Message[], addedDirs: string[], mainLoopModel: ModelName, vimMode?: VimMode): StatusLineCommandInput {
@@ -207,7 +219,10 @@ function StatusLineInner({
         previousStateRef.current.exceeds200kTokens = exceeds200kTokens;
       }
       const statusInput = buildStatusLineCommandInput(permissionModeRef.current, exceeds200kTokens, settingsRef.current, msgs, Array.from(addedDirsRef.current.keys()), mainLoopModelRef.current, vimModeRef.current);
-      const text = await executeStatusLineCommand(statusInput, controller.signal, undefined, logResult);
+      // Internal HUD: render directly without spawning an external process
+      const text = isHudEnabled()
+        ? await renderHud(statusInput)
+        : await executeStatusLineCommand(statusInput, controller.signal, undefined, logResult);
       if (!controller.signal.aborted) {
         setAppState(prev => {
           if (prev.statusLineText === text) return prev;

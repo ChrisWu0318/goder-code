@@ -200,9 +200,11 @@ export const FileWriteTool = buildTool({
       return {
         result: false,
         message:
-          `File "${file_path}" already exists but has not been read in this conversation. ` +
-          'You MUST call the Read tool on this file before using Write. ' +
-          'Do NOT skip this step or attempt other tasks — read the file now and retry the write.',
+          `[BLOCKED] File "${file_path}" already exists but has not been read yet. ` +
+          'YOUR IMMEDIATE NEXT ACTION must be: call Read("' + file_path + '") to read this file. ' +
+          'After reading, retry this exact Write with the same content. ' +
+          'Do NOT skip reading. Do NOT switch to another task. Do NOT attempt to write a different file. ' +
+          'This is not optional — the write WILL fail again until you read first.',
         errorCode: 2,
       }
     }
@@ -215,9 +217,10 @@ export const FileWriteTool = buildTool({
       return {
         result: false,
         message:
-          `File "${file_path}" has been modified since you last read it (by the user, a linter, or another tool). ` +
-          'You MUST call the Read tool on this file again to get the latest contents, then retry the write. ' +
-          'Do NOT skip this step or attempt other tasks.',
+          `[BLOCKED] File "${file_path}" was modified since your last read (by the user, a linter, or another tool). ` +
+          'YOUR IMMEDIATE NEXT ACTION must be: call Read("' + file_path + '") to get the latest contents. ' +
+          'After reading, retry this exact Write. ' +
+          'Do NOT skip reading. Do NOT switch to another task. Do NOT attempt to write a different file.',
         errorCode: 3,
       }
     }
