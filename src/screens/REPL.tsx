@@ -1928,6 +1928,31 @@ export function REPL({
         contentReplacementStateRef.current = reconstructContentReplacementState(messages, log.contentReplacements ?? []);
       }
 
+      // Goder: for OpenAI-compat mode, aggressively truncate resumed
+      // messages to prevent context overflow. Non-Claude models have smaller
+      // context windows and the full history from a previous session almost
+      // always exceeds the limit, causing:
+      //   1. auto-compact fires immediately on first query
+      //   2. compact itself may fail (context too large for summarization)
+      //   3. model stops responding after compact due to broken state
+      // Fix: keep only the tail of the conversation that fits safely.
+      if (isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI_COMPAT) && messages.length > 20) {
+        const estChars = JSON.stringify(messages.map(m => m.message?.content)).length;
+        const estTokens = Math.ceil(estChars / 4);
+        // If estimated tokens > 50% of a conservative 128K window, truncate
+        if (estTokens > 64_000) {
+          // Keep last 20 messages (enough for recent context) + add a summary boundary
+          const kept = messages.slice(-20);
+          const droppedCount = messages.length - 20;
+          const summaryMsg = createSystemMessage(
+            `[Session resumed — ${droppedCount} earlier messages truncated to fit context window. ` +
+            `Use /compact if context runs low.]`,
+          );
+          messages.length = 0;
+          messages.push(summaryMsg, ...kept);
+        }
+      }
+
       // Reset messages to the provided initial messages
       // Use a callback to ensure we're not dependent on stale state
       setMessages(() => messages);
@@ -2931,6 +2956,45 @@ export function REPL({
         // if onQueryImpl throws. onTurnComplete is called separately in
         // onQueryImpl only on successful completion.
         resetLoadingState();
+
+        // Safety-net: clear stale UI state that blocks input after errors.
+        // resetLoadingState covers streaming/spinner state but not permission
+        // queues, toolJSX, or overlays. If a tool validation error (e.g.
+        // InputValidationError) leaves any of these set, the prompt input
+        // becomes permanently hidden/unfocused and the CLI hangs.
+        setToolJSXInternal(prev => {
+          if (!prev) return prev;
+          // Preserve local JSX commands (e.g. /btw) — only clear tool-owned state
+          if (prev.isLocalJSXCommand) return prev;
+          return null;
+        });
+        setToolUseConfirmQueue(queue => {
+          if (queue.length === 0) return queue;
+          for (const item of queue) { item.onAbort(); }
+          return [];
+        });
+        setPromptQueue(queue => {
+          if (queue.length === 0) return queue;
+          for (const item of queue) { item.reject(new Error('Query ended with pending prompt')); }
+          return [];
+        });
+        setSandboxPermissionRequestQueue(queue => {
+          if (queue.length === 0) return queue;
+          for (const item of queue) { item.resolvePromise(false); }
+          return [];
+        });
+        setAppState(prev => {
+          // Clear modal overlays that may have been orphaned by error paths.
+          // Keep 'autocomplete' — it's the only non-modal overlay.
+          if (prev.activeOverlays.size === 0) return prev;
+          const cleaned = new Set<string>();
+          for (const id of prev.activeOverlays) {
+            if (id === 'autocomplete') cleaned.add(id);
+          }
+          if (cleaned.size === prev.activeOverlays.size) return prev;
+          return { ...prev, activeOverlays: cleaned };
+        });
+
         await mrOnTurnComplete(messagesRef.current, abortController.signal.aborted);
 
         // Notify bridge clients that the turn is complete so mobile apps
