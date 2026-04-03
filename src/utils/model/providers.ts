@@ -18,18 +18,20 @@ export function getAPIProviderForStatsig(): AnalyticsMetadata_I_VERIFIED_THIS_IS
 }
 
 /**
- * Check if ANTHROPIC_BASE_URL points to OpenRouter.
+ * Check if ANTHROPIC_BASE_URL or OPENAI_BASE_URL points to OpenRouter.
+ * Goder: also check OPENAI_BASE_URL for OpenAI-compat mode users.
  */
 export function isOpenRouterBaseUrl(): boolean {
-  const baseUrl = process.env.ANTHROPIC_BASE_URL
-  if (!baseUrl) {
-    return false
+  const urls = [process.env.ANTHROPIC_BASE_URL, process.env.OPENAI_BASE_URL]
+  for (const baseUrl of urls) {
+    if (!baseUrl) continue
+    try {
+      if (new URL(baseUrl).host.includes('openrouter.ai')) return true
+    } catch {
+      // ignore malformed URL
+    }
   }
-  try {
-    return new URL(baseUrl).host.includes('openrouter.ai')
-  } catch {
-    return false
-  }
+  return false
 }
 
 /**

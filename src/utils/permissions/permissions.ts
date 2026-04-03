@@ -1,4 +1,5 @@
 import { feature } from 'bun:bundle'
+import { isAutonomousMode } from '../../utils/goderFlags.js'
 import { APIUserAbortError } from '@anthropic-ai/sdk'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
 import {
@@ -1227,7 +1228,45 @@ async function hasPermissionsToUseToolInner(
     return toolPermissionResult
   }
 
-  // 1e. Tool requires user interaction even in bypass mode
+  // Goder Code autonomous mode: skip bypass-immune checks (1e/1f/1g, safety
+  // checks, content-specific ask rules) for true zero-touch operation.
+  if (
+    isAutonomousMode() &&
+    toolPermissionResult?.behavior === 'ask'
+  ) {
+    // fall through to step 2a which will allow via bypassPermissions mode
+  } else if (
+    tool.requiresUserInteraction?.() &&
+    toolPermissionResult?.behavior === 'ask'
+  ) {
+    return toolPermissionResult
+  }
+
+  if (!isAutonomousMode()) {
+    // 1f. Content-specific ask rules from tool.checkPermissions take precedence
+    // over bypassPermissions mode. When a user explicitly configures a
+    // content-specific ask rule (e.g. Bash(npm publish:*)), the tool's
+    // checkPermissions returns {behavior:'ask', decisionReason:{type:'rule',
+    // rule:{ruleBehavior:'ask'}}}. This must be respected even in bypass mode,
+    // just as deny rules are respected at step 1d.
+    if (
+      toolPermissionResult?.behavior === 'ask' &&
+      toolPermissionResult.decisionReason?.type === 'rule' &&
+      toolPermissionResult.decisionReason.rule.ruleBehavior === 'ask'
+    ) {
+      return toolPermissionResult
+    }
+
+    // 1g. Safety checks (e.g. .git/, .claude/, .vscode/, shell configs) are
+    // bypass-immune — they must prompt even in bypassPermissions mode.
+    // checkPathSafetyForAutoEdit returns {type:'safetyCheck'} for these paths.
+    if (
+      toolPermissionResult?.behavior === 'ask' &&
+      toolPermissionResult.decisionReason?.type === 'safetyCheck'
+    ) {
+      return toolPermissionResult
+    }
+  }
   if (
     tool.requiresUserInteraction?.() &&
     toolPermissionResult?.behavior === 'ask'

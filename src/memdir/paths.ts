@@ -67,7 +67,12 @@ export function isAutoMemoryEnabled(): boolean {
  * directly in an `if` condition.
  */
 export function isExtractModeActive(): boolean {
+  // Auto memory disabled → extraction has nowhere durable to write
+  if (!isAutoMemoryEnabled()) return false
   if (!getFeatureValue_CACHED_MAY_BE_STALE('tengu_passport_quail', false)) {
+    if (process.env.GODER_EXTRACT_MEMORIES !== '0') {
+      return !getIsNonInteractiveSession()
+    }
     return false
   }
   return (

@@ -4,6 +4,7 @@ export const RARITIES = [
   'rare',
   'epic',
   'legendary',
+  'golden',
 ] as const
 export type Rarity = (typeof RARITIES)[number]
 
@@ -59,6 +60,14 @@ export const pikachu = c(
   0x68,
   0x75,
 ) as 'pikachu'
+export const chubit = c(
+  0x63,
+  0x68,
+  0x75,
+  0x62,
+  0x69,
+  0x74,
+) as 'chubit'
 
 export const SPECIES = [
   duck,
@@ -80,6 +89,7 @@ export const SPECIES = [
   mushroom,
   chonk,
   pikachu,
+  chubit,
 ] as const
 export type Species = (typeof SPECIES)[number] // biome-ignore format: keep compact
 
@@ -138,7 +148,8 @@ export const RARITY_WEIGHTS = {
   uncommon: 25,
   rare: 10,
   epic: 4,
-  legendary: 1,
+  legendary: 0,
+  golden: 0,
 } as const satisfies Record<Rarity, number>
 
 export const RARITY_STARS = {
@@ -147,6 +158,7 @@ export const RARITY_STARS = {
   rare: '★★★',
   epic: '★★★★',
   legendary: '★★★★★',
+  golden: '✦✦✦✦✦',
 } as const satisfies Record<Rarity, string>
 
 export const RARITY_COLORS = {
@@ -155,4 +167,5 @@ export const RARITY_COLORS = {
   rare: 'permission',
   epic: 'autoAccept',
   legendary: 'warning',
+  golden: 'rainbow_yellow_shimmer',
 } as const satisfies Record<Rarity, keyof import('../utils/theme.js').Theme>

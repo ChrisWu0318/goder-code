@@ -14,6 +14,8 @@ const ENABLED_FEATURES = [
     'MCP_SKILLS',
     'HARD_FAIL',
     'VOICE_MODE',
+    'AUTO_THEME',
+    'AWAY_SUMMARY',
 ];
 
 // Step 1: Clean output directory

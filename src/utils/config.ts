@@ -271,6 +271,8 @@ export type GlobalConfig = {
   companion?: import('../buddy/types.js').StoredCompanion
   companionMuted?: boolean
   companionSpeciesOverride?: string
+  companionRarityOverride?: string
+  companionNameOverride?: string
 
   // Feedback survey tracking
   feedbackSurveyState?: {

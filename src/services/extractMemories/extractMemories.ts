@@ -371,15 +371,18 @@ export function initExtractMemories(): void {
     const canUseTool = createAutoMemCanUseTool(memoryDir)
     const cacheSafeParams = createCacheSafeParams(context)
 
-    // Only run extraction every N eligible turns (tengu_bramble_lintel, default 1).
-    // Trailing extractions (from stashed contexts) skip this check since they
-    // process already-committed work that should not be throttled.
+    // Only run extraction every N eligible turns.
+    // Goder: default to every 5 turns (saves API calls on free models).
+    // Override with GODER_EXTRACT_EVERY_N_TURNS env var.
+    // Original default was 1 (every turn) via tengu_bramble_lintel GrowthBook flag.
     if (!isTrailingRun) {
       turnsSinceLastExtraction++
-      if (
-        turnsSinceLastExtraction <
-        (getFeatureValue_CACHED_MAY_BE_STALE('tengu_bramble_lintel', null) ?? 1)
-      ) {
+      const envInterval = process.env.GODER_EXTRACT_EVERY_N_TURNS
+        ? parseInt(process.env.GODER_EXTRACT_EVERY_N_TURNS, 10) : 0
+      const interval = envInterval > 0
+        ? envInterval
+        : (getFeatureValue_CACHED_MAY_BE_STALE('tengu_bramble_lintel', null) ?? 5)
+      if (turnsSinceLastExtraction < interval) {
         return
       }
     }
@@ -534,11 +537,13 @@ export function initExtractMemories(): void {
     }
 
     if (!getFeatureValue_CACHED_MAY_BE_STALE('tengu_passport_quail', false)) {
-      if (process.env.USER_TYPE === 'ant' && !hasLoggedGateFailure) {
-        hasLoggedGateFailure = true
-        logEvent('tengu_extract_memories_gate_disabled', {})
+      // Goder: bypass GrowthBook gate — allow extraction when feature flag is on.
+      // Users can disable with GODER_EXTRACT_MEMORIES=0.
+      if (process.env.GODER_EXTRACT_MEMORIES === '0') {
+        return
       }
-      return
+      // Original code: only log for ant users, then bail.
+      // Goder: fall through to extraction instead of returning.
     }
 
     // Check auto-memory is enabled

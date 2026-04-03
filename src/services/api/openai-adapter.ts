@@ -24,6 +24,7 @@ interface OAIChatRequest {
   stream_options?: { include_usage: boolean }
   max_tokens?: number
   temperature?: number
+  thinking?: { type: 'enabled' | 'disabled' }
   stop?: string[]
 }
 
@@ -114,6 +115,28 @@ function convertSystemPrompt(
   return text ? [{ role: 'system', content: text }] : []
 }
 
+// Synthetic sentinel messages used internally by Claude Code.
+// These must be stripped before sending to non-Claude models — they're
+// internal protocol that confuses third-party models (especially after
+// /resume, where the sentinel becomes the last assistant message and
+// some models interpret it literally, refusing to respond).
+const SYNTHETIC_SENTINELS = new Set([
+  'No response requested.',
+  '[Tool result missing due to internal error]',
+])
+
+function isSyntheticSentinel(content: unknown): boolean {
+  if (typeof content === 'string') {
+    return SYNTHETIC_SENTINELS.has(content)
+  }
+  if (Array.isArray(content) && content.length === 1) {
+    const block = content[0] as { type?: string; text?: string }
+    return block.type === 'text' && typeof block.text === 'string' &&
+      SYNTHETIC_SENTINELS.has(block.text)
+  }
+  return false
+}
+
 function convertMessages(messages: unknown[]): OAIMessage[] {
   const result: OAIMessage[] = []
 
@@ -121,6 +144,12 @@ function convertMessages(messages: unknown[]): OAIMessage[] {
     role: string
     content: unknown
   }[]) {
+    // Skip synthetic sentinel messages (e.g. "No response requested."
+    // injected by deserializeMessages on /resume). These are internal
+    // Claude Code protocol and confuse non-Claude models.
+    if (msg.role === 'assistant' && isSyntheticSentinel(msg.content)) {
+      continue
+    }
     if (msg.role === 'user') {
       result.push(...convertUserMessage(msg))
     } else if (msg.role === 'assistant') {
@@ -128,7 +157,30 @@ function convertMessages(messages: unknown[]): OAIMessage[] {
     }
   }
 
-  return result
+  // Merge consecutive same-role messages. Stripping synthetic sentinels
+  // above can leave adjacent user messages (e.g. resume sentinel removed
+  // between two user turns). OpenAI API rejects consecutive same-role
+  // messages, so we must merge them.
+  const merged: OAIMessage[] = []
+  for (const msg of result) {
+    const prev = merged[merged.length - 1]
+    if (prev && prev.role === msg.role && msg.role !== 'tool') {
+      // Merge text content
+      const prevText = typeof prev.content === 'string' ? prev.content : ''
+      const curText = typeof msg.content === 'string' ? msg.content : ''
+      if (prevText || curText) {
+        prev.content = [prevText, curText].filter(Boolean).join('\n\n')
+      }
+      // Merge tool_calls for assistant messages
+      if (msg.tool_calls) {
+        prev.tool_calls = [...(prev.tool_calls ?? []), ...msg.tool_calls]
+      }
+    } else {
+      merged.push({ ...msg })
+    }
+  }
+
+  return merged
 }
 
 function convertUserMessage(
@@ -387,16 +439,33 @@ function buildOAIRequest(params: Record<string, unknown>, stripImages = false): 
     messages = stripImagesFromMessages(messages)
   }
 
-  // Determine model: use OPENAI_MODEL env or the model from params
-  const model =
-    process.env.OPENAI_MODEL ?? (params.model as string) ?? 'gpt-4o'
+  // Determine model: prefer explicit params.model (e.g. from CLAUDE_CODE_SUBAGENT_MODEL)
+  // over the OPENAI_MODEL env var, so subagents can use a different model.
+  // Only fall back to OPENAI_MODEL when params.model is an Anthropic model name
+  // (which means it was inherited, not explicitly overridden).
+  const paramsModel = params.model as string | undefined
+  const isAnthropicModel = paramsModel && /^claude-|^anthropic[./]/.test(paramsModel)
+  const model = (paramsModel && !isAnthropicModel)
+    ? paramsModel
+    : process.env.OPENAI_MODEL ?? paramsModel ?? 'gpt-4o'
 
   const request: OAIChatRequest = {
     model,
     messages: [...system, ...messages],
     stream: true,
     stream_options: { include_usage: true },
-    max_tokens: (params.max_tokens as number) ?? 16384,
+    max_tokens: (() => {
+      const envOverride = process.env.GODER_MAX_OUTPUT_TOKENS
+        ? parseInt(process.env.GODER_MAX_OUTPUT_TOKENS, 10) : 0
+      if (envOverride > 0) return envOverride
+      const fromParams = params.max_tokens as number | undefined
+      // Anthropic defaults (64k/128k) are too high for most 3P models.
+      // Cap at 16384 unless the model is known to support more.
+      const m = model.toLowerCase()
+      const isLargeOutputModel = m.includes('qwen3.6') || m.includes('gpt-4.1') || m.includes('gemini')
+      const OAI_COMPAT_MAX_OUTPUT_CAP = isLargeOutputModel ? 65_536 : 16_384
+      return fromParams ? Math.min(fromParams, OAI_COMPAT_MAX_OUTPUT_CAP) : OAI_COMPAT_MAX_OUTPUT_CAP
+    })(),
   }
 
   if (tools && tools.length > 0) {
@@ -408,6 +477,12 @@ function buildOAIRequest(params: Record<string, unknown>, stripImages = false): 
   // (models with thinking may ignore or error on temperature)
   if (!params.thinking) {
     request.temperature = (params.temperature as number) ?? undefined
+  }
+
+  // Forward native thinking param to OpenAI-compatible providers.
+  // Qwen and DeepSeek accept `{ type: "enabled" }` to force thinking on.
+  if (params.thinking?.type === 'adaptive' || params.thinking?.type === 'enabled') {
+    request.thinking = { type: 'enabled' }
   }
 
   return request
@@ -621,11 +696,42 @@ async function* convertStream(
     }
   }
 
+  // If no chunks were received at all, emit a minimal error response
+  // so the upstream doesn't silently hang.
+  if (firstChunk) {
+    state.messageId = `msg_${Date.now()}`
+    state.model = process.env.OPENAI_MODEL ?? 'unknown'
+    yield {
+      type: 'message_start',
+      message: {
+        id: state.messageId,
+        type: 'message',
+        role: 'assistant',
+        content: [],
+        model: state.model,
+        stop_reason: null,
+        stop_sequence: null,
+        usage: { input_tokens: 0, output_tokens: 0 },
+      },
+    }
+    yield {
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'text', text: '' },
+    }
+    yield {
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'text_delta', text: '[Model returned empty response. This may be caused by context overflow or an API error. Try shortening the conversation or running /compact.]' },
+    }
+    yield { type: 'content_block_stop', index: 0 }
+  }
+
   // Close any remaining open blocks
-  if (state.activeThinkingBlock) {
+  if (!firstChunk && state.activeThinkingBlock) {
     yield { type: 'content_block_stop', index: state.blockIndex }
   }
-  if (state.activeTextBlock) {
+  if (!firstChunk && state.activeTextBlock) {
     yield { type: 'content_block_stop', index: state.blockIndex }
   }
 
@@ -751,8 +857,30 @@ export function createOpenAICompatClient(options: {
 
       if (!response.ok) {
         const body = await response.text().catch(() => '')
+        const bodyLower = body.toLowerCase()
+
+        // Normalize context-overflow errors from various providers into the
+        // standard "prompt is too long" message that getAssistantMessageFromError
+        // and reactive auto-compact recognise. Without this, the upstream
+        // handler falls through to the generic "API Error: ..." path and
+        // auto-compact never triggers — the conversation is stuck.
+        const isContextOverflow =
+          bodyLower.includes('context length') ||
+          bodyLower.includes('context_length') ||
+          bodyLower.includes('token limit') ||
+          bodyLower.includes('too many tokens') ||
+          bodyLower.includes('maximum context') ||
+          bodyLower.includes('exceeds the model') ||
+          bodyLower.includes('prompt is too long') ||
+          bodyLower.includes('request too large') ||
+          (response.status === 400 && bodyLower.includes('too long'))
+
+        const errorMsg = isContextOverflow
+          ? `Prompt is too long — provider returned ${response.status}: ${body.slice(0, 300)}`
+          : `API error ${response.status}: ${body.slice(0, 500)}`
+
         throw Object.assign(
-          new Error(`API error ${response.status}: ${body.slice(0, 500)}`),
+          new Error(errorMsg),
           {
             status: response.status,
             statusText: response.statusText,
@@ -812,6 +940,16 @@ export function createOpenAICompatClient(options: {
     if (baseURL.includes('openrouter')) {
       headers['HTTP-Referer'] = 'https://github.com/anthropics/claude-code'
       headers['X-Title'] = 'Claude Code'
+    }
+
+    // Debug: log request size so users can diagnose context overflow
+    const totalChars = JSON.stringify(oaiRequest.messages).length
+    const estimatedTokens = Math.ceil(totalChars / 4)
+    if (process.env.GODER_DEBUG || estimatedTokens > 100_000) {
+      // biome-ignore lint/suspicious/noConsole: intentional debug
+      console.error(
+        `[OpenAI Compat] model=${oaiRequest.model} messages=${oaiRequest.messages.length} ~${estimatedTokens} tokens max_tokens=${oaiRequest.max_tokens}`,
+      )
     }
 
     let response: Response
@@ -993,7 +1131,10 @@ export function createOpenAICompatClient(options: {
     if (params.stream) {
       // Return a thenable that also has .withResponse()
       const promise = createStream(params, requestOptions)
+      // biome-ignore lint/suspicious/noThenProperty: thenable pattern for stream await compatibility
+      // biome-ignore lint/suspicious/noThenProperty: thenable pattern for stream await compatibility
       return {
+        // biome-ignore lint/suspicious/noThenProperty: thenable pattern for stream await compatibility
         then: (
           resolve: (v: unknown) => void,
           reject: (e: unknown) => void,

@@ -29,10 +29,30 @@ const OPENAI_COMPAT_CONTEXT_WINDOWS: Array<{ pattern: string; tokens: number }> 
   { pattern: 'mimo-v2-flash',   tokens: 256_000 },
   { pattern: 'mimo-v2-omni',    tokens: 256_000 },
   { pattern: 'mimo',            tokens: 128_000 },
+  // MiniMax
+  { pattern: 'minimax-m2.7',    tokens: 204_800 },
+  { pattern: 'minimax-m2.5',    tokens: 196_608 },
+  { pattern: 'minimax-m2',      tokens: 128_000 },
+  { pattern: 'minimax',         tokens: 128_000 },
+  // Kimi
+  { pattern: 'kimi-k2.5',       tokens: 262_144 },
+  { pattern: 'kimi-k2-thinking', tokens: 128_000 },
+  { pattern: 'kimi-k2',         tokens: 128_000 },
+  { pattern: 'kimi',            tokens: 128_000 },
   // DeepSeek
   { pattern: 'deepseek',        tokens: 64_000 },
   // Qwen
+  { pattern: 'qwen3.6',         tokens: 1_000_000 },
+  { pattern: 'qwen3-235b',      tokens: 1_000_000 },
+  { pattern: 'qwen3-32b',       tokens: 128_000 },
+  { pattern: 'qwen3-30b',       tokens: 128_000 },
+  { pattern: 'qwen3-14b',       tokens: 128_000 },
+  { pattern: 'qwen3-8b',        tokens: 128_000 },
+  { pattern: 'qwen3-4b',        tokens: 128_000 },
+  { pattern: 'qwen3-1.7b',      tokens: 128_000 },
+  { pattern: 'qwen3-0.6b',      tokens: 128_000 },
   { pattern: 'qwen3',           tokens: 128_000 },
+  { pattern: 'qwen2.5-coder',   tokens: 128_000 },
   { pattern: 'qwen2.5',         tokens: 128_000 },
   { pattern: 'qwen',            tokens: 32_000 },
   // Gemini
@@ -75,7 +95,7 @@ const MAX_OUTPUT_TOKENS_UPPER_LIMIT = 64_000
 // (see query.ts max_output_tokens_escalate). Cap is applied in
 // claude.ts:getMaxOutputTokensForModel to avoid the growthbook→betas→context
 // import cycle.
-export const CAPPED_DEFAULT_MAX_TOKENS = 8_000
+export const CAPPED_DEFAULT_MAX_TOKENS = 32_000
 export const ESCALATED_MAX_TOKENS = 64_000
 
 /**
@@ -141,6 +161,14 @@ export function getContextWindowForModel(
   }
 
   if (betas?.includes(CONTEXT_1M_BETA_HEADER) && modelSupports1M(model)) {
+    return 1_000_000
+  }
+  // Goder: when GrowthBook is unavailable the SDK won't inject the 1M beta
+  // header, but models that natively support 1M should still get the full
+  // context window. Without this, Sonnet 4.6 and Opus 4.6 are stuck at 200K
+  // and autoCompact fires at ~187K — losing context long before the model's
+  // actual limit.
+  if (modelSupports1M(model)) {
     return 1_000_000
   }
   if (getSonnet1mExpTreatmentEnabled(model)) {

@@ -39,6 +39,7 @@ const NAMES: Record<string, string[]> = {
   mushroom: ['Shroom', 'Truffle', 'Fungi', 'Spore'],
   chonk: ['Chonkers', 'Thicc', 'Biggie', 'Floof'],
   pikachu: ['Pikachu', 'Sparky', 'Volt', 'Pika'],
+  chubit: ['Dumpling', 'Bubu', 'Mochi', 'Blobbi'],
 }
 
 const PERSONALITIES: Record<string, string[]> = {
@@ -61,6 +62,27 @@ const PERSONALITIES: Record<string, string[]> = {
   mushroom: ['Grows in dark repos', 'Spore-adic brilliance', 'Fun guy to work with'],
   chonk: ['Absolute unit', 'Sits on bugs to squash them', 'Round is a shape'],
   pikachu: ['Shocks bad code away', 'Pika pika!', 'Electric debugging energy'],
+  chubit: ['Too cute to debug', 'Falls asleep on keyboard', 'Maximum squish'],
+}
+
+// Catppuccin-friendly ANSI colors (works on both Latte light & Mocha dark)
+const RESET = '\x1b[0m'
+const CYAN = '\x1b[36m'       // sprite outlines
+const MAGENTA = '\x1b[35m'    // accent / name
+const YELLOW = '\x1b[33m'     // shiny stars
+const GREEN = '\x1b[32m'      // stat bars
+const DIM = '\x1b[2m'         // dim text
+const BOLD = '\x1b[1m'        // bold text
+const BRIGHT_YELLOW = '\x1b[93m'  // golden sparkle
+
+function statBarColor(val: number): string {
+  if (val >= 80) return '\x1b[32m'  // green
+  if (val >= 50) return '\x1b[33m'  // yellow
+  return '\x1b[31m'                  // red
+}
+
+function colorize(text: string, color: string): string {
+  return `${color}${text}${RESET}`
 }
 
 function formatCompanionCard(isNew: boolean): string {
@@ -73,34 +95,67 @@ function formatCompanionCard(isNew: boolean): string {
 
   if (isNew) {
     lines.push('')
-    lines.push('  ~ Your companion has hatched! ~')
+    lines.push(colorize('  ~ Your companion has hatched! ~', BOLD + MAGENTA))
     lines.push('')
   }
 
+  // Colorize sprite lines (the ASCII art body)
+  const coloredSprite = sprite.map(line =>
+    line.replace(/\//g, colorize('/', CYAN))
+        .replace(/\\/g, colorize('\\', CYAN))
+        .replace(/</g, colorize('<', CYAN))
+        .replace(/>/g, colorize('>', CYAN))
+        .replace(/\(/g, colorize('(', CYAN))
+        .replace(/\)/g, colorize(')', CYAN))
+        .replace(/`/g, colorize('`', CYAN))
+        .replace(/~/g, colorize('~', MAGENTA))
+        .replace(/_/g, colorize('_', DIM))
+        .replace(/\^/g, colorize('^', BRIGHT_YELLOW))
+        .replace(/\{/g, colorize('{', CYAN))
+        .replace(/\}/g, colorize('}', CYAN))
+        .replace(/\|/g, colorize('|', CYAN))
+        .replace(/\[/g, colorize('[', CYAN))
+        .replace(/\]/g, colorize(']', CYAN))
+        .replace(/-/g, colorize('-', DIM))
+        .replace(/=/g, colorize('=', CYAN))
+        .replace(/✦/g, colorize('✦', BRIGHT_YELLOW))
+  )
+
   // Build side-by-side: sprite on left, info on right
+  const rarityText = companion.rarity === 'golden'
+    ? colorize(`${companion.rarity}`, BOLD + BRIGHT_YELLOW)
+    : companion.rarity
+  const shinyText = companion.shiny ? colorize(' (shiny!)', BOLD + YELLOW) : ''
+  const speciesText = colorize(companion.species, BOLD + CYAN)
+  const starsColored = stars.split('').map(s =>
+    s === '✦' ? colorize(s, YELLOW) : colorize(s, DIM)
+  ).join('')
+
   const infoLines: string[] = [
-    `  ${companion.name}`,
-    `  ${companion.species}${companion.shiny ? ' (shiny!)' : ''} ${stars} ${companion.rarity}`,
-    `  "${companion.personality}"`,
+    `  ${colorize(companion.name, BOLD + MAGENTA)}`,
+    `  ${speciesText}${shinyText} ${starsColored} ${rarityText}`,
+    `  ${colorize(`"${companion.personality}"`, DIM)}`,
     '',
   ]
   for (const stat of STAT_NAMES) {
     const val = companion.stats[stat]
     const filled = Math.floor(val / 10)
-    const bar = '\u2588'.repeat(filled) + '\u2591'.repeat(10 - filled)
-    infoLines.push(`  ${stat.padEnd(10)} ${bar} ${val}`)
+    const empty = 10 - filled
+    const barColor = statBarColor(val)
+    const bar = colorize('\u2588'.repeat(filled), barColor) + colorize('\u2591'.repeat(empty), DIM)
+    infoLines.push(`  ${colorize(stat.padEnd(10), DIM)} ${bar} ${val}`)
   }
 
-  const maxLines = Math.max(sprite.length, infoLines.length)
+  const maxLines = Math.max(coloredSprite.length, infoLines.length)
   for (let i = 0; i < maxLines; i++) {
-    const left = (sprite[i] ?? '').padEnd(14)
+    const left = (coloredSprite[i] ?? '').padEnd(14)
     const right = infoLines[i] ?? ''
     lines.push(`  ${left}${right}`)
   }
 
   lines.push('')
-  lines.push('  Commands: /buddy pet | /buddy switch <species> | /buddy mute | /buddy unmute')
-  lines.push(`  Species:  ${SPECIES.join(', ')}`)
+  lines.push(colorize('  Commands: ', DIM) + colorize('/buddy pet', CYAN) + colorize(' | ', DIM) + colorize('/buddy switch <species>', CYAN) + colorize(' | ', DIM) + colorize('/buddy mute', CYAN) + colorize(' | ', DIM) + colorize('/buddy unmute', CYAN))
+  lines.push(colorize('  Species:  ', DIM) + SPECIES.join(colorize(', ', DIM)))
 
   return lines.join('\n')
 }
@@ -154,6 +209,16 @@ export async function call(
   if (subcommand === 'unmute') {
     saveGlobalConfig(c => ({ ...c, companionMuted: false }))
     onDone('Companion unmuted!', { display: 'system' })
+    return null
+  }
+
+  // /buddy max — golden mode with maxed stats
+  if (subcommand === 'max') {
+    saveGlobalConfig(c => ({
+      ...c,
+      companionRarityOverride: 'golden',
+    }))
+    onDone('✨ Golden mode activated! Your companion is now MAXED OUT with golden sparkle.', { display: 'system' })
     return null
   }
 

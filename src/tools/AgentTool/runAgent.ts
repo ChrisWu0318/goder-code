@@ -11,16 +11,15 @@ import {
 } from '../../constants/prompts.js'
 
 /** Hard cap on agentic turns when neither the caller nor the agent definition
- *  specifies a maxTurns value. Prevents runaway loops where the agent drifts
- *  off-task and keeps iterating indefinitely. 30 turns is generous enough for
- *  most multi-step tasks while still providing a safety net. */
-const DEFAULT_AGENT_MAX_TURNS = 30
+ *  specifies a maxTurns value. Raised from 30 to 60 for stronger models
+ *  (M2.7, K2-Thinking) that maintain coherence over longer chains. */
+const DEFAULT_AGENT_MAX_TURNS = 60
 
 /** Default focus reminder injected every turn when the agent definition does
- *  not provide its own criticalSystemReminder_EXPERIMENTAL. Keeps the agent
- *  anchored to the original task and prevents context-drift. */
+ *  not provide its own criticalSystemReminder_EXPERIMENTAL. Kept lightweight
+ *  for stronger models that don't need heavy-handed anchoring. */
 const DEFAULT_CRITICAL_SYSTEM_REMINDER =
-  'Stay focused on the current task. Do not deviate from the original objective. After each step, verify you are still working toward the goal before proceeding.'
+  'Stay on task. Report back when done.'
 import type { QuerySource } from '../../constants/querySource.js'
 import { getSystemContext, getUserContext } from '../../context.js'
 import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'

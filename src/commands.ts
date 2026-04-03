@@ -6,6 +6,7 @@ import btw from './commands/btw/index.js'
 import goodClaude from './commands/good-claude/index.js'
 import issue from './commands/issue/index.js'
 import feedback from './commands/feedback/index.js'
+import clipboard from './commands/clipboard/index.js'
 import clear from './commands/clear/index.js'
 import color from './commands/color/index.js'
 import commit from './commands/commit.js'
@@ -124,6 +125,7 @@ const buddy = (
 /* eslint-enable @typescript-eslint/no-require-imports */
 import thinkback from './commands/thinkback/index.js'
 import thinkbackPlay from './commands/thinkback-play/index.js'
+import thinking from './commands/thinking/index.js'
 import permissions from './commands/permissions/index.js'
 import plan from './commands/plan/index.js'
 import fast from './commands/fast/index.js'
@@ -131,9 +133,11 @@ import passes from './commands/passes/index.js'
 import privacySettings from './commands/privacy-settings/index.js'
 import hooks from './commands/hooks/index.js'
 import files from './commands/files/index.js'
+import preview from './commands/preview/index.js'
 import branch from './commands/branch/index.js'
 import agents from './commands/agents/index.js'
 import plugin from './commands/plugin/index.js'
+import project from './commands/project/index.js'
 import reloadPlugins from './commands/reload-plugins/index.js'
 import rewind from './commands/rewind/index.js'
 import heapDump from './commands/heapdump/index.js'
@@ -263,6 +267,7 @@ const COMMANDS = memoize((): Command[] => [
   branch,
   btw,
   chrome,
+  clipboard,
   clear,
   color,
   compact,
@@ -294,6 +299,7 @@ const COMMANDS = memoize((): Command[] => [
   model,
   outputStyle,
   remoteEnv,
+  project,
   plugin,
   pr_comments,
   releaseNotes,
@@ -332,6 +338,7 @@ const COMMANDS = memoize((): Command[] => [
   ...(voiceCommand ? [voiceCommand] : []),
   thinkback,
   thinkbackPlay,
+  thinking,
   permissions,
   plan,
   privacySettings,

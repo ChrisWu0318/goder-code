@@ -45,9 +45,10 @@ export function useAwaySummary(
   isLoadingRef.current = isLoading
 
   // 3P default: false
+  // Goder: GrowthBook is unavailable in this fork; default to enabled.
   const gbEnabled = getFeatureValue_CACHED_MAY_BE_STALE(
     'tengu_sedge_lantern',
-    false,
+    true,
   )
 
   useEffect(() => {

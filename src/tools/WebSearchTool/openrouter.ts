@@ -34,8 +34,10 @@ export async function searchWithOpenRouter(
   model: string,
   signal?: AbortSignal,
 ): Promise<{ results: (SearchResult | string)[] }> {
-  const baseUrl = process.env.ANTHROPIC_BASE_URL
-  const apiKey = process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY
+  // Goder: resolve base URL and API key from either Anthropic or OpenAI-compat env vars.
+  // Priority: ANTHROPIC_BASE_URL > OPENAI_BASE_URL (for OpenAI-compat mode)
+  const baseUrl = process.env.ANTHROPIC_BASE_URL || process.env.OPENAI_BASE_URL
+  const apiKey = process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY
 
   if (!baseUrl || !apiKey) {
     return {
@@ -43,7 +45,11 @@ export async function searchWithOpenRouter(
     }
   }
 
-  const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`
+  // Normalize: ensure we hit /chat/completions, not /v1/chat/completions/chat/completions
+  const normalized = baseUrl.replace(/\/+$/, '')
+  const url = normalized.endsWith('/chat/completions')
+    ? normalized
+    : `${normalized}/chat/completions`
 
   try {
     const response = await fetch(url, {
@@ -53,7 +59,9 @@ export async function searchWithOpenRouter(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model,
+        // In OpenAI-compat mode, mainLoopModel is the Anthropic model name (e.g. claude-sonnet-4-20250514),
+        // not the actual OpenRouter model. Use OPENAI_MODEL env var as the real model identifier.
+        model: process.env.OPENAI_MODEL || model,
         messages: [
           {
             role: 'user',

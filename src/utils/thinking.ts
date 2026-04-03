@@ -6,6 +6,7 @@ import { getCanonicalName } from './model/model.js'
 import { get3PModelCapabilityOverride } from './model/modelSupportOverrides.js'
 import { getAPIProvider } from './model/providers.js'
 import { getSettingsWithErrors } from './settings/settings.js'
+import { isThinkingForced } from './thinkingToggle.js'
 
 export type ThinkingConfig =
   | { type: 'adaptive' }
@@ -105,6 +106,11 @@ export function modelSupportsThinking(model: string): boolean {
   if (provider === 'foundry' || provider === 'firstParty') {
     return !canonical.includes('claude-3-')
   }
+  // Qwen 3.x models support thinking (via OpenRouter and other providers)
+  const lowerModel = model.toLowerCase()
+  if (lowerModel.includes('qwen')) {
+    return true
+  }
   // 3P (Bedrock/Vertex): only Opus 4+ and Sonnet 4+
   return canonical.includes('sonnet-4') || canonical.includes('opus-4')
 }
@@ -136,6 +142,11 @@ export function modelSupportsAdaptiveThinking(model: string): boolean {
   // enabled for model testing. DO NOT default to false for first party, otherwise
   // we may silently degrade model quality.
 
+  // Qwen models support adaptive thinking (they can adjust reasoning depth dynamically)
+  const lowerModel = model.toLowerCase()
+  if (lowerModel.includes('qwen')) {
+    return true
+  }
   // Default to true for unknown model strings on 1P and Foundry (because Foundry
   // is a proxy). Do not default to true for other 3P as they have different formats
   // for their model strings.

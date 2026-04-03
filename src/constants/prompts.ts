@@ -641,7 +641,8 @@ export async function computeEnvInfo(
   // constant-fold it to `false` in external builds and eliminate the branch.
   let modelDescription = ''
   if (process.env.CLAUDE_CODE_USE_OPENAI_COMPAT && process.env.OPENAI_MODEL) {
-    modelDescription = `You are powered by the model ${process.env.OPENAI_MODEL} via an OpenAI-compatible API endpoint.`
+    const _subModel = process.env.CLAUDE_CODE_SUBAGENT_MODEL
+    modelDescription = `You are powered by the model ${process.env.OPENAI_MODEL} via an OpenAI-compatible API endpoint.${_subModel ? ` Sub-agents (multiagent) use the model ${_subModel}.` : ''}`
   } else if (process.env.USER_TYPE === 'ant' && isUndercover()) {
     // suppress
   } else {
@@ -684,7 +685,8 @@ export async function computeSimpleEnvInfo(
   // DCE: inline the USER_TYPE check at each site — do NOT hoist to a const.
   let modelDescription: string | null = null
   if (process.env.CLAUDE_CODE_USE_OPENAI_COMPAT && process.env.OPENAI_MODEL) {
-    modelDescription = `You are powered by the model ${process.env.OPENAI_MODEL} via an OpenAI-compatible API endpoint.`
+    const _subModel = process.env.CLAUDE_CODE_SUBAGENT_MODEL
+    modelDescription = `You are powered by the model ${process.env.OPENAI_MODEL} via an OpenAI-compatible API endpoint.${_subModel ? ` Sub-agents (multiagent) use the model ${_subModel}.` : ''}`
   } else if (process.env.USER_TYPE === 'ant' && isUndercover()) {
     // suppress
   } else {

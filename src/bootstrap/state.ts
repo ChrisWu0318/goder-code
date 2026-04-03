@@ -131,6 +131,8 @@ type State = {
   useCoworkPlugins: boolean
   // Session-only bypass permissions mode flag (not persisted)
   sessionBypassPermissionsMode: boolean
+  // Active project ID for memory isolation (set by --project flag or /project switch)
+  activeProjectId: string | null
   // Session-only flag gating the .claude/scheduled_tasks.json watcher
   // (useScheduledTasks). Set by cronScheduler.start() when the JSON has
   // entries, or by CronCreateTool. Not persisted.
@@ -355,6 +357,8 @@ function getInitialState(): State {
     useCoworkPlugins: false,
     // Session-only bypass permissions mode flag (not persisted)
     sessionBypassPermissionsMode: false,
+    // Active project ID for memory isolation
+    activeProjectId: null,
     // Scheduled tasks disabled until flag or dialog enables them
     scheduledTasksEnabled: false,
     sessionCronTasks: [],
@@ -1781,3 +1785,17 @@ export function setPromptId(id: string | null): void {
   STATE.promptId = id
 }
 export function isReplBridgeActive(): boolean { return false; }
+
+/**
+ * Get the active project ID (or null). Used for memory isolation.
+ */
+export function getActiveProjectId(): string | null {
+  return STATE.activeProjectId
+}
+
+/**
+ * Set the active project ID for session-scoped memory isolation.
+ */
+export function setActiveProjectId(id: string | null): void {
+  STATE.activeProjectId = id
+}

@@ -29,9 +29,9 @@ export const GENERAL_PURPOSE_AGENT: BuiltInAgentDefinition = {
   tools: ['*'],
   source: 'built-in',
   baseDir: 'built-in',
-  maxTurns: 30,
+  maxTurns: 60,
   criticalSystemReminder_EXPERIMENTAL:
-    'Stay focused on the original task. Do not explore tangential topics or make changes beyond what was requested. Complete the task and report back concisely.',
+    'Stay on task. Report back when done.',
   // model is intentionally omitted - uses getDefaultSubagentModel().
   getSystemPrompt: getGeneralPurposeSystemPrompt,
 }

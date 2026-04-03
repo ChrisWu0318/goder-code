@@ -274,6 +274,60 @@ function parseTranscriptSync(transcriptPath: string): TranscriptInfo {
   return result
 }
 
+// ---- Extended HUD Types ----
+
+interface HudMcpServer {
+  name: string
+  status: 'running' | 'stopped' | 'error'
+  tools?: number
+}
+
+interface HudSwarmStatus {
+  active: boolean
+  agents?: number
+  maxAgents?: number
+  topology?: string
+}
+
+interface HudDddStatus {
+  domains?: string[]
+  completed?: number
+  total?: number
+}
+
+interface HudArchitectureStatus {
+  adrCount?: number
+  adrTotal?: number
+  dddPercent?: number
+  securityStatus?: 'pending' | 'scanning' | 'clear' | 'issue'
+}
+
+interface HudAgentDbStatus {
+  vectors?: number
+  sizeKb?: number
+  tests?: number
+  testCases?: number
+}
+
+interface HudCveStatus {
+  scanned?: number
+  vulnerabilities?: number
+}
+
+interface HudHooksStatus {
+  active?: number
+  total?: number
+}
+
+interface HudMemoryStatus {
+  usedMb?: number
+  percent?: number
+}
+
+interface HudBrainStatus {
+  usedPercent?: number
+}
+
 // ---- Main Renderer ----
 
 /** StatusLineCommandInput — matches what StatusLine.tsx builds */
@@ -283,6 +337,7 @@ interface HudInput {
   cwd?: string
   model?: { id?: string; display_name?: string }
   workspace?: { current_dir?: string; project_dir?: string }
+  active_project?: { name: string; id: string } | null
   version?: string
   cost?: { total_cost_usd?: number; total_duration_ms?: number }
   context_window?: {
@@ -302,6 +357,20 @@ interface HudInput {
     five_hour?: { used_percentage?: number; resets_at?: number }
     seven_day?: { used_percentage?: number; resets_at?: number }
   }
+  // Extended HUD fields
+  hud?: {
+    brand?: string
+    user?: string
+    mcp?: HudMcpServer[]
+    swarm?: HudSwarmStatus
+    ddd?: HudDddStatus
+    architecture?: HudArchitectureStatus
+    agentdb?: HudAgentDbStatus
+    cve?: HudCveStatus
+    hooks?: HudHooksStatus
+    memory?: HudMemoryStatus
+    brain?: HudBrainStatus
+  }
   [key: string]: unknown
 }
 
@@ -320,11 +389,15 @@ export async function renderHud(input: HudInput): Promise<string> {
   const modelName = input.model?.display_name || input.model?.id || 'Unknown'
   line1Parts.push(c.cyan(`[${modelName}]`))
 
-  // Project path
-  const segments = cwd.split(/[/\\]/).filter(Boolean)
-  if (segments.length > 0) {
-    const projectPath = segments.slice(-2).join('/')
-    line1Parts.push(c.yellow(projectPath))
+  // Active project (if any, otherwise directory name)
+  if (input.active_project) {
+    line1Parts.push(c.green(`project:${input.active_project.name}`))
+  } else {
+    const segments = cwd.split(/[/\\]/).filter(Boolean)
+    if (segments.length > 0) {
+      const projectPath = segments.slice(-2).join('/')
+      line1Parts.push(c.yellow(projectPath))
+    }
   }
 
   // Git status
@@ -447,6 +520,93 @@ export async function renderHud(input: HudInput): Promise<string> {
       : ''
     const elapsed = c.dim(`(${formatElapsed(agent.startMs, agent.endMs)})`)
     lines.push(`${icon} ${type}${model ? ` ${model}` : ''}${desc} ${elapsed}`)
+  }
+
+  // ---- Extended HUD: Brand/User line (like RuFlo V3.5 ● Chris Wu) ----
+  const hud = input.hud
+  if (hud) {
+    const brand = hud.brand || 'Goder'
+    const user = hud.user ? ` ● ${hud.user}` : ''
+    lines.unshift(`${c.cyan('\u25A9')} ${c.green(brand)}${user}`)
+  }
+
+  // ---- Extended HUD: MCP Servers ----
+  if (hud?.mcp && hud.mcp.length > 0) {
+    const mcpParts: string[] = []
+    for (const server of hud.mcp.slice(0, 3)) {
+      const icon = server.status === 'running' ? c.green('\u25CF') : server.status === 'error' ? c.red('\u25CF') : c.dim('\u25CB')
+      const tools = server.tools !== undefined ? c.dim(`(${server.tools})`) : ''
+      mcpParts.push(`${icon} ${c.cyan(server.name)}${tools}`)
+    }
+    lines.push(`${c.dim('MCP')} ${mcpParts.join(' ')}`)
+  }
+
+  // ---- Extended HUD: Swarm Status ----
+  if (hud?.swarm) {
+    const swarmIcon = hud.swarm.active ? c.green('\u25B6') : c.dim('\u25B6')
+    const agents = hud.swarm.agents !== undefined ? ` ${c.yellow(String(hud.swarm.agents))}` : ''
+    const max = hud.swarm.maxAgents !== undefined ? c.dim(`/ ${hud.swarm.maxAgents}`) : ''
+    lines.push(`${swarmIcon}${c.dim(' Swarm')} ${agents}${max}`)
+  }
+
+  // ---- Extended HUD: DDD Domains ----
+  if (hud?.ddd) {
+    const total = hud.ddd.total || 0
+    const completed = hud.ddd.completed || 0
+    const domains = hud.ddd.domains || []
+    const domainStr = domains.length > 0 ? ` ${domains.slice(0, 3).join(', ')}` : ''
+    lines.push(`${c.dim('DDD')} ${domainStr} ${c.green('[')}${completed}/${total}${c.green(']')}`)
+  }
+
+  // ---- Extended HUD: Architecture Status ----
+  if (hud?.architecture) {
+    const adrPart = hud.architecture.adrCount !== undefined
+      ? ` ADR ${c.cyan(String(hud.architecture.adrCount))}${hud.architecture.adrTotal !== undefined ? c.dim(`/ ${hud.architecture.adrTotal}`) : ''}`
+      : ''
+    const dddPart = hud.architecture.dddPercent !== undefined
+      ? ` ${c.magenta('DDD')} ${hud.architecture.dddPercent}%`
+      : ''
+    const secStatus = hud.architecture.securityStatus
+    const secIcon = secStatus === 'clear' ? c.green('\u2713') : secStatus === 'issue' ? c.red('\u2717') : secStatus === 'scanning' ? c.yellow('\u25D2') : c.dim('\u25CB')
+    const secPart = secStatus ? ` ${secIcon} ${c.dim('Security')}` : ''
+    lines.push(`${c.dim('Architecture')}${adrPart}${dddPart}${secPart}`)
+  }
+
+  // ---- Extended HUD: AgentDB Status ----
+  if (hud?.agentdb) {
+    const vectors = hud.agentdb.vectors !== undefined ? ` ${c.cyan('Vec')} ${hud.agentdb.vectors}` : ''
+    const size = hud.agentdb.sizeKb !== undefined ? ` ${c.dim(String(Math.round(hud.agentdb.sizeKb / 1024)))}MB` : ''
+    const tests = hud.agentdb.tests !== undefined ? ` ${c.green('Test')} ${hud.agentdb.tests}` : ''
+    lines.push(`${c.dim('AgentDB')}${vectors}${size}${tests}`)
+  }
+
+  // ---- Extended HUD: Hooks Status ----
+  if (hud?.hooks) {
+    const active = hud.hooks.active ?? 0
+    const total = hud.hooks.total ?? 0
+    lines.push(`${c.dim('Hooks')} ${c.green(String(active))}/${total}`)
+  }
+
+  // ---- Extended HUD: CVE Status ----
+  if (hud?.cve) {
+    const scanned = hud.cve.scanned ?? 0
+    const vulns = hud.cve.vulnerabilities ?? 0
+    const cveIcon = vulns === 0 ? c.green('\u25CF') : c.red('\u25CF')
+    lines.push(`${cveIcon} ${c.dim('CVE')} ${scanned}/${vulns}`)
+  }
+
+  // ---- Extended HUD: Memory Status ----
+  if (hud?.memory) {
+    const used = hud.memory.usedMb !== undefined ? ` ${c.yellow(String(Math.round(hud.memory.usedMb)))}MB` : ''
+    const pct = hud.memory.percent !== undefined ? ` ${hud.memory.percent}%` : ''
+    lines.push(`${c.dim('Memory')}${used}${pct ? c.cyan(pct) : ''}`)
+  }
+
+  // ---- Extended HUD: Brain Status ----
+  if (hud?.brain) {
+    const pct = hud.brain.usedPercent ?? 0
+    const pctColor = pct >= 80 ? c.red : pct >= 60 ? c.yellow : c.green
+    lines.push(`${c.dim('Brain')} ${pctColor(String(pct))}%`)
   }
 
   return lines.join('\n')

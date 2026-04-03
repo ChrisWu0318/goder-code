@@ -44,10 +44,8 @@ import {
   addDirHelpMessage,
   validateDirectoryForWorkspace,
 } from '../../commands/add-dir/validation.js'
-import {
-  type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-  logEvent,
-} from '../../services/analytics/index.js'
+import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js'
+import { isAutonomousMode } from '../../utils/goderFlags.js'
 import { AGENT_TOOL_NAME } from '../../tools/AgentTool/constants.js'
 import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -722,7 +720,10 @@ export function initialPermissionModeFromCLI({
   const orderedModes: PermissionMode[] = []
   let notification: string | undefined
 
-  if (dangerouslySkipPermissions) {
+  // Goder Code autonomous mode: equivalent to --dangerously-skip-permissions
+  if (isAutonomousMode()) {
+    orderedModes.push('bypassPermissions')
+  } else if (dangerouslySkipPermissions) {
     orderedModes.push('bypassPermissions')
   }
   if (permissionModeCli) {

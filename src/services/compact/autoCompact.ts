@@ -16,6 +16,7 @@ import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
 import { getMaxOutputTokensForModel } from '../api/claude.js'
 import { notifyCompaction } from '../api/promptCacheBreakDetection.js'
 import { setLastSummarizedMessageId } from '../SessionMemory/sessionMemoryUtils.js'
+import { createCompactBoundaryMessage } from '../../utils/messages.js'
 import {
   type CompactionResult,
   compactConversation,
@@ -356,9 +357,18 @@ export async function autoCompactIfNeeded(
           { level: 'info' },
         )
         const postCompactTokens = tokenCountWithEstimation(localResult.messages)
+        const boundaryMarker = createCompactBoundaryMessage(
+          'auto',
+          tokenCountWithEstimation(messages),
+          messages.at(-1)?.uuid,
+        )
         return {
           wasCompacted: true,
           compactionResult: {
+            boundaryMarker,
+            summaryMessages: [],
+            attachments: [],
+            hookResults: [],
             messages: localResult.messages,
             summary: localResult.summary,
             preCompactTokenCount: tokenCountWithEstimation(messages),

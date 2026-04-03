@@ -4,6 +4,7 @@ import {
   getIsNonInteractiveSession,
   getSessionTrustAccepted,
 } from '../../bootstrap/state.js'
+import { getGoderDefault, getGoderOverride } from '../../utils/goderFlags.js'
 import { getGrowthBookClientKey } from '../../constants/keys.js'
 import {
   checkHasTrustDialogAccepted,
@@ -683,7 +684,9 @@ async function getFeatureValueInternal<T>(
   }
 
   if (!isGrowthBookEnabled()) {
-    return defaultValue
+    const goderOverride = getGoderOverride(feature)
+    if (goderOverride !== undefined) return goderOverride as T
+    return getGoderDefault(feature, defaultValue)
   }
 
   const growthBookClient = await initializeGrowthBook()
@@ -746,7 +749,9 @@ export function getFeatureValue_CACHED_MAY_BE_STALE<T>(
   }
 
   if (!isGrowthBookEnabled()) {
-    return defaultValue
+    const goderOverride = getGoderOverride(feature)
+    if (goderOverride !== undefined) return goderOverride as T
+    return getGoderDefault(feature, defaultValue)
   }
 
   // Log experiment exposure if data is available, otherwise defer until after init
@@ -815,6 +820,8 @@ export function checkStatsigFeatureGate_CACHED_MAY_BE_STALE(
   }
 
   if (!isGrowthBookEnabled()) {
+    const goderOverride = getGoderOverride(gate)
+    if (goderOverride !== undefined) return goderOverride
     return false
   }
 
@@ -862,6 +869,8 @@ export async function checkSecurityRestrictionGate(
   }
 
   if (!isGrowthBookEnabled()) {
+    const goderOverride = getGoderOverride(gate)
+    if (goderOverride !== undefined) return goderOverride
     return false
   }
 
@@ -915,6 +924,8 @@ export async function checkGate_CACHED_OR_BLOCKING(
   }
 
   if (!isGrowthBookEnabled()) {
+    const goderOverride = getGoderOverride(gate)
+    if (goderOverride !== undefined) return goderOverride
     return false
   }
 

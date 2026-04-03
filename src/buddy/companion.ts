@@ -137,6 +137,25 @@ export function getCompanion(): Companion | undefined {
     bones.species = override as Species
   }
 
+  // Golden override: max stats + golden rarity
+  const rarityOverride = config.companionRarityOverride
+  if (rarityOverride === 'golden') {
+    bones.rarity = 'golden'
+    for (const stat of STAT_NAMES) {
+      bones.stats[stat] = 100
+    }
+    bones.shiny = true
+    bones.eye = '✦'
+    bones.hat = 'crown'
+  }
+
+  // Name override for golden companions
+  const nameOverride = config.companionNameOverride
+
   // bones last so stale bones fields in old-format configs get overridden
-  return { ...stored, ...bones }
+  const result = { ...stored, ...bones }
+  if (nameOverride) {
+    result.name = nameOverride
+  }
+  return result
 }

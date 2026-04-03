@@ -83,8 +83,14 @@ import type { WebSearchProgress } from '../../types/tools.js'
  * Whether to use Anthropic's server-side web_search_20250305 tool.
  * Only works with actual Anthropic API endpoints (firstParty + real base URL,
  * vertex, foundry). For proxies / third-party models, we fall back to Serper.
+ *
+ * Goder: OpenAI-compat mode never supports Anthropic server search.
  */
 function supportsAnthropicServerSearch(): boolean {
+  // OpenAI-compat mode uses a completely different API — never supports Anthropic server tools
+  if (process.env.CLAUDE_CODE_USE_OPENAI_COMPAT) {
+    return false
+  }
   const provider = getAPIProvider()
   if (provider === 'vertex' || provider === 'foundry') {
     return true

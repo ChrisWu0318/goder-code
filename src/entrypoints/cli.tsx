@@ -8,6 +8,29 @@ const ENABLED_FEATURES = new Set([
     'MCP_SKILLS',
     'HARD_FAIL',
     'VOICE_MODE',
+    'AUTO_THEME',
+    'AWAY_SUMMARY',
+    'EXTRACT_MEMORIES',
+    // ── Tier 1: fully implemented, no Anthropic dependency ──
+    'BRIDGE_MODE',
+    'COMMIT_ATTRIBUTION',
+    'CONTEXT_COLLAPSE',
+    'HISTORY_SNIP',
+    'REACTIVE_COMPACT',
+    'CACHED_MICROCOMPACT',
+    'PROMPT_CACHE_BREAK_DETECTION',
+    'TOKEN_BUDGET',
+    'VERIFICATION_AGENT',
+    'FORK_SUBAGENT',
+    'EXPERIMENTAL_SKILL_SEARCH',
+    'BUILTIN_EXPLORE_PLAN_AGENTS',
+    'BASH_CLASSIFIER',
+    'STREAMLINED_OUTPUT',
+    'WORKFLOW_SCRIPTS',
+    'COMPACTION_REMINDERS',
+    // ── Tier 2: limited but usable on Goder Code ──
+    'PROACTIVE',
+    'FILE_PERSISTENCE',
 ]);
 const feature = (name: string) => ENABLED_FEATURES.has(name);
 
@@ -41,6 +64,10 @@ if (typeof globalThis.MACRO === "undefined") {
 (globalThis as any).BUILD_TARGET = "external";
 (globalThis as any).BUILD_ENV = "production";
 (globalThis as any).INTERFACE_TYPE = "stdio";
+
+// Companion observer — provide the global fireCompanionObserver for buddy reactions
+import { fireCompanionObserver } from '../buddy/observer.js';
+(globalThis as any).fireCompanionObserver = fireCompanionObserver;
 
 // Bugfix for corepack auto-pinning, which adds yarnpkg to peoples' package.jsons
 // eslint-disable-next-line custom-rules/no-top-level-side-effects

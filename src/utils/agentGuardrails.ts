@@ -115,11 +115,11 @@ export class AgentGuardrails {
   private readonly WINDOW_SIZE = 10
 
   constructor(options?: AgentGuardrailsOptions) {
-    this.maxTurns = options?.maxTurns ?? envNumber('GODER_MAX_TURNS', 100)
-    this.maxCostUSD = options?.maxCostUSD ?? envNumber('GODER_MAX_BUDGET_USD', 5.0)
+    this.maxTurns = options?.maxTurns ?? envNumber('GODER_MAX_TURNS', 200)
+    this.maxCostUSD = options?.maxCostUSD ?? envNumber('GODER_MAX_BUDGET_USD', 10.0)
     this.maxConsecutiveSameToolCalls =
-      options?.maxConsecutiveSameToolCalls ?? envNumber('GODER_MAX_SAME_TOOL_CALLS', 5)
-    this.maxConsecutiveErrors = options?.maxConsecutiveErrors ?? 3
+      options?.maxConsecutiveSameToolCalls ?? envNumber('GODER_MAX_SAME_TOOL_CALLS', 8)
+    this.maxConsecutiveErrors = options?.maxConsecutiveErrors ?? 5
   }
 
   // -----------------------------------------------------------------------

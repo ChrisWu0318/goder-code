@@ -67,6 +67,7 @@ import {
   CAPPED_DEFAULT_MAX_TOKENS,
   getModelMaxOutputTokens,
   getSonnet1mExpTreatmentEnabled,
+  modelSupports1M,
 } from '../../utils/context.js'
 import { resolveAppliedEffort } from '../../utils/effort.js'
 import { isEnvTruthy } from '../../utils/envUtils.js'
@@ -1540,9 +1541,12 @@ async function* queryModel(
     const betasParams = [...betas]
 
     // Append 1M beta dynamically for the Sonnet 1M experiment.
+    // Goder: also inject the header when the model natively supports 1M,
+    // since GrowthBook is unavailable and the SDK won't add it automatically.
     if (
       !betasParams.includes(CONTEXT_1M_BETA_HEADER) &&
-      getSonnet1mExpTreatmentEnabled(retryContext.model)
+      (getSonnet1mExpTreatmentEnabled(retryContext.model) ||
+       modelSupports1M(retryContext.model))
     ) {
       betasParams.push(CONTEXT_1M_BETA_HEADER)
     }
@@ -1874,14 +1878,17 @@ async function* queryModel(
     // initial fetch(), not the streaming body.
     //
     // Goder: enabled by default (was opt-in via CLAUDE_ENABLE_STREAM_WATCHDOG).
-    // OpenAI-compat providers (OpenRouter, Ollama, etc.) are more likely to
-    // stall or drop connections silently, so aggressive watchdog is warranted.
+    // OpenAI-compat providers need a watchdog but with MORE generous timeouts —
+    // MoE models (MiniMax M2.7, DeepSeek, Kimi K2) have irregular chunk timing
+    // and longer TTFB than Claude. The original 45s was causing false kills.
     const streamWatchdogEnabled =
       process.env.CLAUDE_ENABLE_STREAM_WATCHDOG !== undefined
         ? isEnvTruthy(process.env.CLAUDE_ENABLE_STREAM_WATCHDOG)
         : true // default ON
+    const isOpenAICompat = isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI_COMPAT)
     const STREAM_IDLE_TIMEOUT_MS =
-      parseInt(process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS || '', 10) || 45_000
+      parseInt(process.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS || '', 10)
+      || (isOpenAICompat ? 120_000 : 45_000) // 2min for 3P, 45s for Claude
     const STREAM_IDLE_WARNING_MS = STREAM_IDLE_TIMEOUT_MS / 2
     let streamIdleAborted = false
     // performance.now() snapshot when watchdog fires, for measuring abort propagation delay
@@ -1939,16 +1946,17 @@ async function* queryModel(
       // stream in and accumulate state
       let isFirstChunk = true
       let lastEventTime: number | null = null // Set after first chunk to avoid measuring TTFB as a stall
-      const STALL_THRESHOLD_MS = 15_000 // 15 seconds (Goder: reduced from 30s for faster stall detection)
+      const STALL_THRESHOLD_MS = isOpenAICompat ? 45_000 : 15_000 // OpenAI-compat: MoE models (MiniMax, DeepSeek) have irregular chunk timing
       let totalStallTime = 0
       let stallCount = 0
+      let stallCircuitBreakerTripped = false
 
       for await (const part of stream) {
         resetStreamIdleTimer()
         const now = Date.now()
 
         // Detect and log streaming stalls (only after first event to avoid counting TTFB)
-        const MAX_STALL_COUNT = 3 // Goder: abort after 3 stalls to avoid endlessly slow streams
+        const MAX_STALL_COUNT = isOpenAICompat ? 8 : 3 // OpenAI-compat: allow more stalls before aborting (MoE models stall more)
         if (lastEventTime !== null) {
           const timeSinceLastEvent = now - lastEventTime
           if (timeSinceLastEvent > STALL_THRESHOLD_MS) {
@@ -1985,6 +1993,7 @@ async function* queryModel(
                 request_id: (streamRequestId ??
                   'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
               })
+              stallCircuitBreakerTripped = true
               releaseStreamResources()
               break
             }
@@ -2330,6 +2339,29 @@ async function* queryModel(
       }
       // Clear the idle timeout watchdog now that the stream loop has exited
       clearStreamIdleTimers()
+
+      // If the stall circuit breaker tripped, treat it the same as idle timeout:
+      // throw so withRetry can retry or the outer loop can compact.
+      // Without this, a stall-aborted stream with partial message_start but no
+      // completed content gets silently treated as a finished turn — the model
+      // appears to "stop responding".
+      if (stallCircuitBreakerTripped) {
+        logForDebugging(
+          `Stall circuit breaker aborted stream — triggering retry/fallback`,
+          { level: 'error' },
+        )
+        logEvent('tengu_stall_circuit_breaker_fallback', {
+          stall_count: stallCount,
+          total_stall_time_ms: totalStallTime,
+          had_partial_message: !!partialMessage,
+          new_messages_count: newMessages.length,
+          model:
+            options.model as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+          request_id: (streamRequestId ??
+            'unknown') as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+        })
+        throw new Error('Stream stall circuit breaker - too many stalls')
+      }
 
       // If the stream was aborted by our idle timeout watchdog, fall back to
       // non-streaming retry rather than treating it as a completed stream.

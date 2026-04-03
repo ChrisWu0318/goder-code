@@ -310,6 +310,12 @@ export const outputSchema = lazySchema(() => {
       .describe('Tools allowed by this skill'),
     model: z.string().optional().describe('Model override if specified'),
     status: z.literal('inline').optional().describe('Execution status'),
+    skillContent: z
+      .string()
+      .optional()
+      .describe(
+        'Skill content embedded for OpenAI-compat models that need it in the tool result',
+      ),
   })
 
   // Output schema for forked skills
@@ -764,6 +770,39 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
     // calling them again here would double-register hooks and rebuild
     // skillContent redundantly.
 
+    // Extract skill content from newMessages and embed directly in the tool
+    // result. Non-Claude models often treat "Successfully loaded skill" as
+    // task-complete and ignore the separate user messages that carry the actual
+    // instructions. By embedding the content in the tool result itself, we
+    // ensure all models see it as part of the tool output.
+    //
+    // Note: We no longer gate this on CLAUDE_CODE_USE_OPENAI_COMPAT because:
+    // 1. The env var may not be reliably available in all execution contexts
+    // 2. Embedding skill content is harmless for Claude models too - they just
+    //    ignore the redundant instruction and use the messages that follow
+    let skillContent: string | undefined
+    const textParts: string[] = []
+    for (const msg of newMessages) {
+      if (msg.type !== 'user' || !('message' in msg)) continue
+      const content = (msg as UserMessage).message.content
+      if (typeof content === 'string') {
+        textParts.push(content)
+      } else if (Array.isArray(content)) {
+        for (const block of content) {
+          if (
+            block.type === 'text' &&
+            'text' in block &&
+            typeof block.text === 'string'
+          ) {
+            textParts.push(block.text)
+          }
+        }
+      }
+    }
+    if (textParts.length > 0) {
+      skillContent = textParts.join('\n\n')
+    }
+
     // Return success with newMessages and contextModifier
     return {
       data: {
@@ -771,6 +810,7 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
         commandName,
         allowedTools: allowedTools.length > 0 ? allowedTools : undefined,
         model,
+        skillContent,
       },
       newMessages,
       contextModifier(ctx) {
@@ -855,10 +895,21 @@ export const SkillTool: Tool<InputSchema, Output, Progress> = buildTool({
     }
 
     // Inline skill result (default)
+    // For OpenAI-compat models, embed the full skill content in the tool
+    // result. These models often treat "Successfully loaded" as task-complete
+    // and ignore the injected user messages that follow.
+    if ('skillContent' in result && result.skillContent) {
+      return {
+        type: 'tool_result' as const,
+        tool_use_id: toolUseID,
+        content: `Skill "${result.commandName}" loaded. You MUST now execute the skill instructions below — do NOT stop or wait for user input.\n\n---\n${result.skillContent}\n---\n\nIMPORTANT: Execute the skill steps above NOW. First briefly tell the user what you are about to do (1 sentence), then proceed with the instructions.`,
+      }
+    }
+
     return {
       type: 'tool_result' as const,
       tool_use_id: toolUseID,
-      content: `Launching skill: ${result.commandName}`,
+      content: `Successfully loaded skill: ${result.commandName}. IMPORTANT: Before executing the skill steps, first briefly tell the user what you are about to do (1 sentence), then proceed.`,
     }
   },
 
