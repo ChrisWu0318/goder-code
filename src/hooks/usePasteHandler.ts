@@ -160,7 +160,7 @@ export function usePasteHandler({
                 )
 
                 if (validImages.length > 0) {
-                  // Successfully read at least one image — embed it
+                  // Successfully read at least one image — embed as [Image #N] pills
                   for (const imageData of validImages) {
                     const filename = basename(imageData.path)
                     onImagePaste(
@@ -171,19 +171,10 @@ export function usePasteHandler({
                       imageData.path,
                     )
                   }
-                  // Also paste the original text (file paths) so non-vision
-                  // models can use Read to view the image file. Vision models
-                  // get both the embedded image and the path.
-                  if (onPaste) {
-                    onPaste(pastedText)
-                  }
-                  setIsPasting(false)
-                } else if (isTempScreenshot && isMacOS) {
-                  // For temporary screenshot files that no longer exist, try clipboard
-                  checkClipboardForImage()
-                } else {
-                  if (onPaste) {
-                    onPaste(pastedText)
+                  // Only paste non-image lines as text (mixed paste: images + text)
+                  const nonImageLines = lines.filter(line => !isImageFilePath(line))
+                  if (nonImageLines.length > 0 && onPaste) {
+                    onPaste(nonImageLines.join('\n'))
                   }
                   setIsPasting(false)
                 }
