@@ -284,8 +284,13 @@ export default class App extends PureComponent<Props, State> {
     // Clear the timer reference
     this.incompleteEscapeTimer = null;
 
-    // Only proceed if we have incomplete sequences
-    if (!this.keyParseState.incomplete) return;
+    // Only proceed if we have incomplete sequences OR we're in paste mode
+    // with buffered paste content. When PASTE_END is lost (e.g. some
+    // terminals/file drag in Ghostty 1.3+), the tokenizer has fully parsed
+    // the plain-text content (incomplete="") but parse-keypress still has
+    // pasteBuffer populated. Flushing here creates the paste key instead of
+    // dropping it forever.
+    if (!this.keyParseState.incomplete && this.keyParseState.mode !== 'IN_PASTE') return;
 
     // Fullscreen: if stdin has data waiting, it's almost certainly the
     // continuation of the buffered sequence (e.g. `[<64;74;16M` after a

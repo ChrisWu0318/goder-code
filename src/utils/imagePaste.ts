@@ -324,13 +324,25 @@ function stripBackslashEscapes(path: string): string {
 }
 
 /**
+ * Remove file:// URI scheme from dragged paths
+ * @param text Text to clean
+ * @returns Text with file:// prefix removed
+ */
+function stripFileProtocol(text: string): string {
+  if (text.startsWith('file://')) return text.slice(7)
+  if (text.startsWith('file:')) return text.slice(5)
+  return text
+}
+
+/**
  * Check if a given text represents an image file path
  * @param text Text to check
  * @returns Boolean indicating if text is an image path
  */
 export function isImageFilePath(text: string): boolean {
   const cleaned = removeOuterQuotes(text.trim())
-  const unescaped = stripBackslashEscapes(cleaned)
+  const withoutProtocol = stripFileProtocol(cleaned)
+  const unescaped = stripBackslashEscapes(withoutProtocol)
   return IMAGE_EXTENSION_REGEX.test(unescaped)
 }
 
@@ -341,7 +353,8 @@ export function isImageFilePath(text: string): boolean {
  */
 export function asImageFilePath(text: string): string | null {
   const cleaned = removeOuterQuotes(text.trim())
-  const unescaped = stripBackslashEscapes(cleaned)
+  const withoutProtocol = stripFileProtocol(cleaned)
+  const unescaped = stripBackslashEscapes(withoutProtocol)
 
   if (IMAGE_EXTENSION_REGEX.test(unescaped)) {
     return unescaped
@@ -405,19 +418,24 @@ export async function tryReadImageFromPath(
   // Resize if needed to stay under 5MB API limit
   // Extract extension from path for format hint
   const ext = extname(imagePath).slice(1).toLowerCase() || 'png'
-  const resized = await maybeResizeAndDownsampleImageBuffer(
-    imageBuffer,
-    imageBuffer.length,
-    ext,
-  )
-  const base64Image = resized.buffer.toString('base64')
+  try {
+    const resized = await maybeResizeAndDownsampleImageBuffer(
+      imageBuffer,
+      imageBuffer.length,
+      ext,
+    )
+    const base64Image = resized.buffer.toString('base64')
 
-  // Detect format from the actual file contents using magic bytes
-  const mediaType = detectImageFormatFromBase64(base64Image)
-  return {
-    path: imagePath,
-    base64: base64Image,
-    mediaType,
-    dimensions: resized.dimensions,
+    // Detect format from the actual file contents using magic bytes
+    const mediaType = detectImageFormatFromBase64(base64Image)
+    return {
+      path: imagePath,
+      base64: base64Image,
+      mediaType,
+      dimensions: resized.dimensions,
+    }
+  } catch (e) {
+    logError(e as Error)
+    return null
   }
 }

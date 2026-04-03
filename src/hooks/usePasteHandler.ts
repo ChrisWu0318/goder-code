@@ -14,6 +14,7 @@ import { getPlatform } from '../utils/platform.js'
 
 const CLIPBOARD_CHECK_DEBOUNCE_MS = 50
 const PASTE_COMPLETION_TIMEOUT_MS = 100
+const IS_PASTING_SAFETY_TIMEOUT_MS = 2_000 // Goder: prevent permanent "Pasting…" hang
 
 type PasteHandlerProps = {
   onPaste?: (text: string) => void
@@ -136,9 +137,10 @@ export function usePasteHandler({
             // For space-separated paths, we split on spaces that precede absolute paths:
             // - Unix: space followed by `/` (e.g., `/Users/...`)
             // - Windows: space followed by drive letter and `:\` (e.g., `C:\Users\...`)
+            // - file:// URIs: space followed by `file://` (e.g., `file:///Users/...`)
             // This works because spaces within paths are escaped (e.g., `file\ name.png`)
             const lines = pastedText
-              .split(/ (?=\/|[A-Za-z]:\\)/)
+              .split(/ (?=\/|file:\/\/|[A-Za-z]:\\)/)
               .flatMap(part => part.split('\n'))
               .filter(line => line.trim())
             const imagePaths = lines.filter(line => isImageFilePath(line))
@@ -158,7 +160,7 @@ export function usePasteHandler({
                 )
 
                 if (validImages.length > 0) {
-                  // Successfully read at least one image
+                  // Successfully read at least one image — embed it
                   for (const imageData of validImages) {
                     const filename = basename(imageData.path)
                     onImagePaste(
@@ -169,12 +171,11 @@ export function usePasteHandler({
                       imageData.path,
                     )
                   }
-                  // If some paths weren't images, paste them as text
-                  const nonImageLines = lines.filter(
-                    line => !isImageFilePath(line),
-                  )
-                  if (nonImageLines.length > 0 && onPaste) {
-                    onPaste(nonImageLines.join('\n'))
+                  // Also paste the original text (file paths) so non-vision
+                  // models can use Read to view the image file. Vision models
+                  // get both the embedded image and the path.
+                  if (onPaste) {
+                    onPaste(pastedText)
                   }
                   setIsPasting(false)
                 } else if (isTempScreenshot && isMacOS) {
@@ -186,6 +187,12 @@ export function usePasteHandler({
                   }
                   setIsPasting(false)
                 }
+              }).catch(() => {
+                // Image processing failed — fall back to pasting the text
+                if (onPaste) {
+                  onPaste(pastedText)
+                }
+                setIsPasting(false)
               })
               return { chunks: [], timeoutId: null }
             }
@@ -230,7 +237,7 @@ export function usePasteHandler({
     // The keypress parser sets isPasted=true for content within bracketed paste.
     const isFromPaste = event.keypress.isPasted
 
-    // If this is pasted content, set isPasting state for UI feedback
+    //If this is pasted content, set isPasting state for UI feedback
     if (isFromPaste) {
       setIsPasting(true)
     }
@@ -247,8 +254,13 @@ export function usePasteHandler({
     // When dragging multiple images, they may come as newline-separated or
     // space-separated paths. Split on spaces preceding absolute paths:
     // - Unix: ` /` - Windows: ` C:\` etc.
+    // Handle potential image filenames (even if they're shorter than paste threshold)
+    // When dragging multiple images, they may come as newline-separated or
+    // space-separated paths. Split on spaces preceding absolute paths:
+    // - Unix: ` /` - Windows: ` C:\` etc.
+    // - file:// URIs: space followed by `file://` (e.g., `file:///Users/...`)
     const hasImageFilePath = input
-      .split(/ (?=\/|[A-Za-z]:\\)/)
+      .split(/ (?=\/|file:\/\/|[A-Za-z]:\\)/)
       .flatMap(part => part.split('\n'))
       .some(line => isImageFilePath(line.trim()))
 
@@ -290,6 +302,19 @@ export function usePasteHandler({
       setIsPasting(false)
     }
   }
+
+  // Goder: safety valve — if isPasting gets stuck (e.g. terminal never sends
+  // PASTE_END, or the resetPasteTimeout callback never fires), force-reset
+  // after IS_PASTING_SAFETY_TIMEOUT_MS so the UI doesn't freeze permanently.
+  React.useEffect(() => {
+    if (!isPasting) return
+    const safetyTimer = setTimeout(() => {
+      // Only reset if we're still in paste mode — the normal 100ms timeout
+      // should have already fired. Reset here as a fallback.
+      setIsPasting(false)
+    }, IS_PASTING_SAFETY_TIMEOUT_MS)
+    return () => clearTimeout(safetyTimer)
+  }, [isPasting])
 
   return {
     wrappedOnInput,
