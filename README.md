@@ -1,13 +1,49 @@
 # Goder Code
 
-**[English](README_EN.md)** | 中文
-[☕ 赞赏](#赞赏)
+**[English](README_EN.md)** | 中文 | [☕ 赞赏](#赞赏)
+
+![Goder is All You Need](docs/banner.jpg)
 
 > 一个基于现代 AI 能力构建的终端智能助手，具备完整的 REPL 对话、工具系统、API 通信与 MCP 集成能力，并在此基础上新增安全特性与中文支持。
 
 基于对主流 CLI AI 助手架构的深入研究构建而成，恢复并实现了完整的核心功能（REPL 对话、工具系统、API 通信、MCP 集成等），并在此基础上添加了四项实用安全特性和 `/helpc` 中文帮助系统。
 
+![Goder Code Screenshot](docs/screenshot.jpg)
+
+## 最简单用法
+
+**前提：** 装好了 [Bun](https://bun.sh/)（`brew install oven-sh/bun/bun`）和 [Git](https://git-scm.com/)（Mac 自带）。
+
+```bash
+# 1. 克隆
+git clone https://github.com/ChrisWu0318/goder-code.git
+
+# 2. 安装依赖
+cd goder-code
+bun install
+
+# 3. 配置 API Key（选一个）
+
+# 如果用的是 OpenAI 兼容 API（硅基流动 / 月之暗面 / 智谱 等）：
+export CLAUDE_CODE_USE_OPENAI_COMPAT=1
+export OPENAI_API_KEY="sk-你的key"
+export OPENAI_BASE_URL="https://你的api地址"
+export OPENAI_MODEL="qwen/qwen3.6-plus:free"   # 换成你的模型
+
+# 如果用的是 Anthropic 官方 Claude：
+export ANTHROPIC_API_KEY="sk-ant-..."
+
+# 4. 启动
+bun run dev
+```
+
+启动后在终端里输入"你好"就行，剩下的跟聊天一样。
+
 ## 快速开始
+
+### 环境要求
+
+Bun >= 1.3.11
 
 ### 环境要求
 
