@@ -896,7 +896,8 @@ export function createOpenAICompatClient(options: {
   }
 
   /**
-   * Detect if an error indicates the model/provider doesn't support image input.
+   * Detect if an error indicates the model/provider doesn't support image input,
+   * or if a gateway error (502/503) was likely caused by a large image payload.
    */
   function isImageNotSupportedError(err: unknown): boolean {
     if (!(err instanceof Error)) return false
@@ -911,6 +912,17 @@ export function createOpenAICompatClient(options: {
   }
 
   /**
+   * Detect gateway errors (502/503) that may be caused by large image payloads.
+   * OpenRouter/Cloudflare returns 502 HTML pages when the upstream can't handle
+   * the request — retrying without images often succeeds.
+   */
+  function isGatewayErrorWithImages(err: unknown): boolean {
+    if (!(err instanceof Error)) return false
+    const msg = err.message.toLowerCase()
+    return msg.includes('502') || msg.includes('503') || msg.includes('bad gateway')
+  }
+
+  /**
    * Check whether the OAI request contains any image_url content parts.
    */
   function requestHasImages(req: OAIChatRequest): boolean {
@@ -919,6 +931,44 @@ export function createOpenAICompatClient(options: {
         Array.isArray(m.content) &&
         (m.content as OAIContentPart[]).some(p => p.type === 'image_url'),
     )
+  }
+
+  // Maximum raw image size for OpenAI-compat providers (1MB).
+  // The Anthropic API allows up to 3.75MB raw (5MB base64), but OpenRouter
+  // and other proxies often 502 when the request body is too large.
+  const OPENAI_COMPAT_IMAGE_MAX_RAW = 1 * 1024 * 1024 // 1 MB
+
+  /**
+   * Compress inline base64 images in OAI messages to fit within proxy limits.
+   * Decodes each data: URL, re-compresses via sharp, and replaces in-place.
+   */
+  async function compressRequestImages(request: OAIChatRequest): Promise<void> {
+    for (const msg of request.messages) {
+      if (!Array.isArray(msg.content)) continue
+      for (let i = 0; i < msg.content.length; i++) {
+        const part = msg.content[i] as OAIContentPart
+        if (part.type !== 'image_url' || !part.image_url?.url.startsWith('data:')) continue
+
+        // Parse data URL: data:<mediaType>;base64,<data>
+        const commaIdx = part.image_url.url.indexOf(',')
+        if (commaIdx < 0) continue
+        const base64Data = part.image_url.url.slice(commaIdx + 1)
+        const rawSize = Math.ceil(base64Data.length * 3 / 4)
+
+        if (rawSize <= OPENAI_COMPAT_IMAGE_MAX_RAW) continue
+
+        try {
+          const { compressImageBuffer } = await import('../../utils/imageResizer.js')
+          const buffer = Buffer.from(base64Data, 'base64')
+          const compressed = await compressImageBuffer(buffer, OPENAI_COMPAT_IMAGE_MAX_RAW)
+          part.image_url = {
+            url: `data:${compressed.mediaType};base64,${compressed.base64}`,
+          }
+        } catch {
+          // Compression failed — leave original, let gateway-error retry handle it
+        }
+      }
+    }
   }
 
   // The streaming create function
@@ -940,6 +990,11 @@ export function createOpenAICompatClient(options: {
     if (baseURL.includes('openrouter')) {
       headers['HTTP-Referer'] = 'https://github.com/anthropics/claude-code'
       headers['X-Title'] = 'Claude Code'
+    }
+
+    // Compress large inline images before sending to avoid 502 from proxies
+    if (requestHasImages(oaiRequest)) {
+      await compressRequestImages(oaiRequest)
     }
 
     // Debug: log request size so users can diagnose context overflow
@@ -971,6 +1026,25 @@ export function createOpenAICompatClient(options: {
         // biome-ignore lint/suspicious/noConsole: intentional warning
         console.error(
           '[OpenAI Compat] Model does not support image input — retrying without images',
+        )
+        actualRequest = buildOAIRequest(params, true)
+        response = await fetchWithRetry(
+          url,
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(actualRequest),
+            signal: requestOptions?.signal,
+          },
+          maxRetries,
+        )
+      } else if (isGatewayErrorWithImages(err) && requestHasImages(oaiRequest)) {
+        // 502/503 from OpenRouter/Cloudflare often means the image payload
+        // was too large for the upstream — retry without images so the text
+        // part of the message still goes through.
+        // biome-ignore lint/suspicious/noConsole: intentional warning
+        console.error(
+          '[OpenAI Compat] Gateway error (502/503) with images — retrying without images',
         )
         actualRequest = buildOAIRequest(params, true)
         response = await fetchWithRetry(
@@ -1039,6 +1113,11 @@ export function createOpenAICompatClient(options: {
       headers['X-Title'] = 'Claude Code'
     }
 
+    // Compress large inline images before sending
+    if (requestHasImages(oaiRequest)) {
+      await compressRequestImages(oaiRequest)
+    }
+
     let response: Response
     try {
       response = await fetchWithRetry(
@@ -1052,10 +1131,10 @@ export function createOpenAICompatClient(options: {
         maxRetries,
       )
     } catch (err) {
-      if (isImageNotSupportedError(err) && requestHasImages(oaiRequest)) {
+      if ((isImageNotSupportedError(err) || isGatewayErrorWithImages(err)) && requestHasImages(oaiRequest)) {
         // biome-ignore lint/suspicious/noConsole: intentional warning
         console.error(
-          '[OpenAI Compat] Model does not support image input — retrying without images',
+          '[OpenAI Compat] Image-related error — retrying without images',
         )
         const fallbackRequest = buildOAIRequest(params, true)
         fallbackRequest.stream = false

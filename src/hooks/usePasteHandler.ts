@@ -137,10 +137,9 @@ export function usePasteHandler({
             // For space-separated paths, we split on spaces that precede absolute paths:
             // - Unix: space followed by `/` (e.g., `/Users/...`)
             // - Windows: space followed by drive letter and `:\` (e.g., `C:\Users\...`)
-            // - file:// URIs: space followed by `file://` (e.g., `file:///Users/...`)
             // This works because spaces within paths are escaped (e.g., `file\ name.png`)
             const lines = pastedText
-              .split(/ (?=\/|file:\/\/|[A-Za-z]:\\)/)
+              .split(/ (?=\/|[A-Za-z]:\\)/)
               .flatMap(part => part.split('\n'))
               .filter(line => line.trim())
             const imagePaths = lines.filter(line => isImageFilePath(line))
@@ -160,7 +159,7 @@ export function usePasteHandler({
                 )
 
                 if (validImages.length > 0) {
-                  // Successfully read at least one image — embed as [Image #N] pills
+                  // Successfully read at least one image
                   for (const imageData of validImages) {
                     const filename = basename(imageData.path)
                     onImagePaste(
@@ -171,10 +170,20 @@ export function usePasteHandler({
                       imageData.path,
                     )
                   }
-                  // Only paste non-image lines as text (mixed paste: images + text)
-                  const nonImageLines = lines.filter(line => !isImageFilePath(line))
+                  // If some paths weren't images, paste them as text
+                  const nonImageLines = lines.filter(
+                    line => !isImageFilePath(line),
+                  )
                   if (nonImageLines.length > 0 && onPaste) {
                     onPaste(nonImageLines.join('\n'))
+                  }
+                  setIsPasting(false)
+                } else if (isTempScreenshot && isMacOS) {
+                  // For temporary screenshot files that no longer exist, try clipboard
+                  checkClipboardForImage()
+                } else {
+                  if (onPaste) {
+                    onPaste(pastedText)
                   }
                   setIsPasting(false)
                 }
@@ -228,7 +237,7 @@ export function usePasteHandler({
     // The keypress parser sets isPasted=true for content within bracketed paste.
     const isFromPaste = event.keypress.isPasted
 
-    //If this is pasted content, set isPasting state for UI feedback
+    // If this is pasted content, set isPasting state for UI feedback
     if (isFromPaste) {
       setIsPasting(true)
     }
@@ -245,13 +254,8 @@ export function usePasteHandler({
     // When dragging multiple images, they may come as newline-separated or
     // space-separated paths. Split on spaces preceding absolute paths:
     // - Unix: ` /` - Windows: ` C:\` etc.
-    // Handle potential image filenames (even if they're shorter than paste threshold)
-    // When dragging multiple images, they may come as newline-separated or
-    // space-separated paths. Split on spaces preceding absolute paths:
-    // - Unix: ` /` - Windows: ` C:\` etc.
-    // - file:// URIs: space followed by `file://` (e.g., `file:///Users/...`)
     const hasImageFilePath = input
-      .split(/ (?=\/|file:\/\/|[A-Za-z]:\\)/)
+      .split(/ (?=\/|[A-Za-z]:\\)/)
       .flatMap(part => part.split('\n'))
       .some(line => isImageFilePath(line.trim()))
 
