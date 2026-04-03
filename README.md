@@ -10,7 +10,32 @@
 
 ![Goder Code Screenshot](docs/screenshot.jpg)
 
-## 最简单用法
+## 下载安装（macOS Apple Silicon，零依赖）
+
+> 不需要安装 bun、node、Xcode 或任何其他开发环境，解压即用。
+
+从 [Releases](https://github.com/ChrisWu0318/goder-code/releases) 下载最新的 `goder-v*.0.*-macos-arm64.zip`：
+
+```bash
+# 1. 解压
+unzip goder-v1.0.4-macos-arm64.zip
+
+# 2. 进入目录
+cd goder-v1.0.4-macos-arm64
+
+# 3. 配置 API Key（选一个）
+export CLAUDE_CODE_USE_OPENAI_COMPAT=1
+export OPENAI_API_KEY="sk-你的key"
+export OPENAI_BASE_URL="https://你的api地址"
+export OPENAI_MODEL="qwen/qwen3.6-plus:free"
+
+# 4. 启动
+./goder.sh
+```
+
+启动后在终端里输入"你好"就行，剩下的跟聊天一样。
+
+## 源码编译运行（开发者方式）
 
 **前提：** 装好了 [Bun](https://bun.sh/)（`brew install oven-sh/bun/bun`）和 [Git](https://git-scm.com/)（Mac 自带）。
 
@@ -36,8 +61,6 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 # 4. 启动
 bun run dev
 ```
-
-启动后在终端里输入"你好"就行，剩下的跟聊天一样。
 
 ## 快速开始
 
