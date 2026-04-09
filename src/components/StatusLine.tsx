@@ -46,7 +46,7 @@ export function statusLineShouldDisplay(settings: ReadonlySettings): boolean {
   if (isHudEnabled()) return true;
   return settings?.statusLine !== undefined;
 }
-function buildStatusLineCommandInput(permissionMode: PermissionMode, exceeds200kTokens: boolean, settings: ReadonlySettings, messages: Message[], addedDirs: string[], mainLoopModel: ModelName, vimMode?: VimMode): StatusLineCommandInput {
+function buildStatusLineCommandInput(permissionMode: PermissionMode, exceeds200kTokens: boolean, settings: ReadonlySettings, messages: Message[], addedDirs: string[], mainLoopModel: ModelName, vimMode?: VimMode, effortLevel?: string): StatusLineCommandInput {
   const agentType = getMainThreadAgentType();
   const worktreeSession = getCurrentWorktreeSession();
   const runtimeModel = getRuntimeMainLoopModel({
@@ -79,6 +79,9 @@ function buildStatusLineCommandInput(permissionMode: PermissionMode, exceeds200k
     ...createBaseHookInput(),
     ...(sessionName && {
       session_name: sessionName
+    }),
+    ...(effortLevel && {
+      effort: effortLevel
     }),
     model: {
       id: runtimeModel,
@@ -185,6 +188,9 @@ function StatusLineInner({
   const mainLoopModelRef = useRef(mainLoopModel);
   mainLoopModelRef.current = mainLoopModel;
 
+  const effortValueRef = useRef(useAppState(s => s.effortValue));
+  effortValueRef.current = useAppState(s => s.effortValue);
+
   // Track previous state to detect changes and cache expensive calculations
   const previousStateRef = useRef<{
     messageId: string | null;
@@ -225,7 +231,16 @@ function StatusLineInner({
         previousStateRef.current.messageId = currentMessageId;
         previousStateRef.current.exceeds200kTokens = exceeds200kTokens;
       }
-      const statusInput = buildStatusLineCommandInput(permissionModeRef.current, exceeds200kTokens, settingsRef.current, msgs, Array.from(addedDirsRef.current.keys()), mainLoopModelRef.current, vimModeRef.current);
+      const statusInput = buildStatusLineCommandInput(
+        permissionModeRef.current,
+        exceeds200kTokens,
+        settingsRef.current,
+        msgs,
+        Array.from(addedDirsRef.current.keys()),
+        mainLoopModelRef.current,
+        vimModeRef.current,
+        effortValueRef.current as string | undefined,
+      );
       // Internal HUD: render directly without spawning an external process
       const text = isHudEnabled()
         ? await renderHud(statusInput)

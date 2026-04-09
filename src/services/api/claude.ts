@@ -2034,6 +2034,12 @@ async function* queryModel(
                   ...part.content_block,
                   input: '',
                 }
+                // Goder Remote: notify remote client about tool start
+                if (process.env.GODER_REMOTE_BRIDGE) {
+                  const { emitToolStart, emitTurnStart } = await import('../../utils/remoteBridge.js')
+                  emitTurnStart()
+                  emitToolStart({ name: part.content_block.name, input: undefined })
+                }
                 break
               case 'server_tool_use':
                 contentBlocks[part.index] = {
@@ -2158,6 +2164,11 @@ async function* queryModel(
                     throw new Error('Content block is not a text block')
                   }
                   ;(contentBlock as { text: string }).text += delta.text
+                  // Goder Remote: stream text to remote clients
+                  if (process.env.GODER_REMOTE_BRIDGE) {
+                    const { emitStreamingText } = await import('../../utils/remoteBridge.js')
+                    emitStreamingText(delta.text, 'agent')
+                  }
                   break
                 case 'signature_delta':
                   if (

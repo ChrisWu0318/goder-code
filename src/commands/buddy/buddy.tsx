@@ -65,20 +65,21 @@ const PERSONALITIES: Record<string, string[]> = {
   chubit: ['Too cute to debug', 'Falls asleep on keyboard', 'Maximum squish'],
 }
 
-// Catppuccin-friendly ANSI colors (works on both Latte light & Mocha dark)
-const RESET = '\x1b[0m'
-const CYAN = '\x1b[36m'       // sprite outlines
-const MAGENTA = '\x1b[35m'    // accent / name
-const YELLOW = '\x1b[33m'     // shiny stars
-const GREEN = '\x1b[32m'      // stat bars
-const DIM = '\x1b[2m'         // dim text
-const BOLD = '\x1b[1m'        // bold text
-const BRIGHT_YELLOW = '\x1b[93m'  // golden sparkle
+// Bun bundler strips 0x1b bytes for security. Construct escapes at runtime.
+const ESC = String.fromCharCode(27)
+const RESET = `${ESC}[0m`
+const CYAN = `${ESC}[36m`       // sprite outlines
+const MAGENTA = `${ESC}[35m`    // accent / name
+const YELLOW = `${ESC}[33m`     // shiny stars
+const GREEN = `${ESC}[32m`      // stat bars
+const DIM = `${ESC}[2m`         // dim text
+const BOLD = `${ESC}[1m`        // bold text
+const BRIGHT_YELLOW = `${ESC}[93m`  // golden sparkle
 
 function statBarColor(val: number): string {
-  if (val >= 80) return '\x1b[32m'  // green
-  if (val >= 50) return '\x1b[33m'  // yellow
-  return '\x1b[31m'                  // red
+  if (val >= 80) return GREEN
+  if (val >= 50) return YELLOW
+  return `${ESC}[31m`  // red
 }
 
 function colorize(text: string, color: string): string {
@@ -123,7 +124,7 @@ function formatCompanionCard(isNew: boolean): string {
 
   // Build side-by-side: sprite on left, info on right
   const rarityText = companion.rarity === 'golden'
-    ? colorize(`${companion.rarity}`, BOLD + BRIGHT_YELLOW)
+    ? colorize(`${companion.rarity}`, BOLD + YELLOW)
     : companion.rarity
   const shinyText = companion.shiny ? colorize(' (shiny!)', BOLD + YELLOW) : ''
   const speciesText = colorize(companion.species, BOLD + CYAN)

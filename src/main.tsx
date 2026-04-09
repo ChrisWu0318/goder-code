@@ -585,6 +585,17 @@ const _pendingSSH: PendingSSH | undefined = feature('SSH_REMOTE') ? {
 export async function main() {
   profileCheckpoint('main_function_start');
 
+  // Goder Remote Bridge — connect to bridge IPC if GODER_REMOTE_BRIDGE is set
+  if (process.env.GODER_REMOTE_BRIDGE) {
+    const { initRemoteBridge, emitTurnStart, emitTurnEnd } = await import('./utils/remoteBridge.js');
+    const bridgeConnected = await initRemoteBridge();
+    if (bridgeConnected) {
+      emitTurnStart();  // Notify remote client that session has started
+      // Keep bridge alive
+      setInterval(() => { try { emitTurnEnd('completed'); } catch {} }, 5_000);
+    }
+  }
+
   // SECURITY: Prevent Windows from executing commands from current directory
   // This must be set before ANY command execution to prevent PATH hijacking attacks
   // See: https://docs.microsoft.com/en-us/windows/win32/api/processenv/nf-processenv-searchpathw
@@ -800,7 +811,8 @@ export async function main() {
   const hasPrintFlag = cliArgs.includes('-p') || cliArgs.includes('--print');
   const hasInitOnlyFlag = cliArgs.includes('--init-only');
   const hasSdkUrl = cliArgs.some(arg => arg.startsWith('--sdk-url'));
-  const isNonInteractive = hasPrintFlag || hasInitOnlyFlag || hasSdkUrl || !process.stdout.isTTY;
+  const hasHappyInteractive = process.env.HAPPY_INTERACTIVE === '1';
+  const isNonInteractive = (hasPrintFlag || hasInitOnlyFlag || hasSdkUrl || !process.stdout.isTTY) && !hasHappyInteractive;
 
   // Stop capturing early input for non-interactive modes
   if (isNonInteractive) {

@@ -12,6 +12,7 @@ import { z } from 'zod/v4'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js'
 import { queryModelWithStreaming } from '../../services/api/claude.js'
 import { buildTool, type ToolDef } from '../../Tool.js'
+import { isEnvTruthy } from '../../utils/envUtils.js'
 import { lazySchema } from '../../utils/lazySchema.js'
 import { logError } from '../../utils/log.js'
 import { createUserMessage } from '../../utils/messages.js'
@@ -21,6 +22,7 @@ import { asSystemPrompt } from '../../utils/systemPromptType.js'
 import { getWebSearchPrompt, WEB_SEARCH_TOOL_NAME } from './prompt.js'
 import { searchWithOpenRouter } from './openrouter.js'
 import { getSerperApiKey, searchWithSerper } from './serper.js'
+import { searchWithDuckDuckGo } from './duckduckgo.js'
 import {
   getToolUseSummary,
   renderToolResultMessage,
@@ -203,12 +205,19 @@ export const WebSearchTool = buildTool({
       return true
     }
 
+    // OpenAI-compat mode doesn't support Anthropic server-side web search.
+    // Fall through to DuckDuckGo (free, no API key required).
+    if (isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI_COMPAT)) {
+      return true
+    }
+
     const provider = getAPIProvider()
     const model = getMainLoopModel()
 
-    // Enable for firstParty only if actually pointing at Anthropic's API
+    // Enable for firstParty only if actually pointing at Anthropic's API.
+    // Even when not, DuckDuckGo fallback is available.
     if (provider === 'firstParty') {
-      return isFirstPartyAnthropicBaseUrl()
+      return true
     }
 
     // Enable for Vertex AI with supported models (Claude 4.0+)
@@ -293,13 +302,15 @@ export const WebSearchTool = buildTool({
     const { query } = input
 
     // Route: use external search when Anthropic server-side search is unavailable.
-    // Priority: OpenRouter > Serper > Anthropic server-side
+    // Priority: OpenRouter > Serper > DuckDuckGo (free) > Anthropic server-side
     const useOpenRouter =
       !supportsAnthropicServerSearch() && isOpenRouterBaseUrl()
     const useSerper =
       !supportsAnthropicServerSearch() && !useOpenRouter && !!getSerperApiKey()
+    const useDuckDuckGo =
+      !supportsAnthropicServerSearch() && !useOpenRouter && !useSerper
 
-    if (useOpenRouter || useSerper) {
+    if (useOpenRouter || useSerper || useDuckDuckGo) {
       if (onProgress) {
         onProgress({
           toolUseID: 'search-progress-1',
@@ -313,7 +324,9 @@ export const WebSearchTool = buildTool({
             context.options.mainLoopModel,
             context.abortController.signal,
           )
-        : await searchWithSerper(query, context.abortController.signal)
+        : useSerper
+          ? await searchWithSerper(query, context.abortController.signal)
+          : await searchWithDuckDuckGo(query, context.abortController.signal)
 
       if (onProgress) {
         const hitCount = externalResult.results.filter(

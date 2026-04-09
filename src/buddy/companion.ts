@@ -57,6 +57,7 @@ const RARITY_FLOOR: Record<Rarity, number> = {
   rare: 25,
   epic: 35,
   legendary: 50,
+  golden: 80,
 }
 
 // One peak stat, one dump stat, rest scattered. Rarity bumps the floor.

@@ -24,6 +24,8 @@ const MAGENTA = '\x1b[35m'
 const CYAN = '\x1b[36m'
 const BRIGHT_BLUE = '\x1b[94m'
 const BRIGHT_MAGENTA = '\x1b[95m'
+const BRIGHT_YELLOW = '\x1b[93m'
+const BOLD = '\x1b[1m'
 
 function colorize(text: string, color: string): string {
   return `${color}${text}${RESET}`
@@ -36,6 +38,7 @@ const c = {
   yellow: (t: string) => colorize(t, YELLOW),
   magenta: (t: string) => colorize(t, MAGENTA),
   cyan: (t: string) => colorize(t, CYAN),
+  bright: (t: string) => colorize(t, BRIGHT_YELLOW),
 }
 
 function getContextColor(percent: number): string {
@@ -333,6 +336,7 @@ interface HudBrainStatus {
 /** StatusLineCommandInput — matches what StatusLine.tsx builds */
 interface HudInput {
   session_id?: string
+  session_name?: string
   transcript_path?: string
   cwd?: string
   model?: { id?: string; display_name?: string }
@@ -357,6 +361,7 @@ interface HudInput {
     five_hour?: { used_percentage?: number; resets_at?: number }
     seven_day?: { used_percentage?: number; resets_at?: number }
   }
+  effort?: string
   // Extended HUD fields
   hud?: {
     brand?: string
@@ -381,51 +386,54 @@ interface HudInput {
 export async function renderHud(input: HudInput): Promise<string> {
   const lines: string[] = []
   const cwd = input.workspace?.current_dir || input.cwd || process.cwd()
+  const hud = input.hud
 
-  // ---- Line 1: [Model] | project git:(branch*) | duration ----
-  const line1Parts: string[] = []
+  // ---- Line 1 (header): Brand | session | model | elapsed ----
+  const header: string[] = []
 
-  // Model
-  const modelName = input.model?.display_name || input.model?.id || 'Unknown'
-  line1Parts.push(c.cyan(`[${modelName}]`))
+  // Brand + User
+  const brand = hud?.brand || 'Goder'
+  const user = hud?.user ? ` \u25CF ${hud.user}` : ''
+  header.push(`${c.cyan('\u25A9')} ${c.green(brand)}${user}`)
 
-  // Active project (if any, otherwise directory name)
-  if (input.active_project) {
-    line1Parts.push(c.green(`project:${input.active_project.name}`))
-  } else {
-    const segments = cwd.split(/[/\\]/).filter(Boolean)
-    if (segments.length > 0) {
-      const projectPath = segments.slice(-2).join('/')
-      line1Parts.push(c.yellow(projectPath))
-    }
+  // Session name (truncate if > 20 chars)
+  if (input.session_name) {
+    let name = input.session_name.replace(/[\u2502]/g, '')
+    if (name.length > 20) name = name.slice(0, 19) + '\u2026'
+    header.push(c.yellow(name))
   }
 
-  // Git status
+  // Model (truncate long model names)
+  let modelName = input.model?.display_name || input.model?.id || 'Unknown'
+  if (modelName.length > 25) modelName = modelName.slice(0, 24) + '\u2026'
+  header.push(modelName === 'Unknown' ? c.cyan(modelName) : c.yellow(modelName))
+
+  // Elapsed
+  if (input.cost?.total_duration_ms) {
+    const ms = input.cost.total_duration_ms
+    header.push(c.dim(ms < 60_000 ? `${Math.round(ms / 1000)}s` : formatDuration(ms)))
+  }
+
+  lines.push(c.dim('\u250D ') + header.join(c.dim(' \u2502 ')))
+
+  // ---- Line 2 (metrics): git | effort | context | quota ----
+  const metrics: string[] = []
+
+  // Git (compact: branch* ±ahead ↓behind)
   const git = await getGitStatus(cwd)
   if (git) {
     const dirty = git.isDirty ? '*' : ''
     const aheadBehind =
       (git.ahead > 0 ? ` \u2191${git.ahead}` : '') +
       (git.behind > 0 ? ` \u2193${git.behind}` : '')
-    line1Parts.push(
-      `${c.magenta('git:(')}${c.cyan(git.branch + dirty + aheadBehind)}${c.magenta(')')}`,
-    )
+    metrics.push(`${c.cyan(git.branch + dirty)}${aheadBehind ? c.dim(aheadBehind) : ''}`)
   }
 
-  // Session duration
-  if (input.cost?.total_duration_ms) {
-    line1Parts.push(c.dim(`\u23F1\uFE0F  ${formatDuration(input.cost.total_duration_ms)}`))
+  // Effort
+  if (input.effort) {
+    const effortSymbol = input.effort === 'max' ? '\u25C9' : input.effort === 'high' ? '\u25CF' : input.effort === 'medium' ? '\u25D0' : '\u25CB'
+    metrics.push(`${c.bright(effortSymbol)} ${c.dim('effort')}`)
   }
-
-  // Version
-  if (input.version) {
-    line1Parts.push(c.dim(`v${input.version}`))
-  }
-
-  lines.push(line1Parts.join(' \u2502 '))
-
-  // ---- Line 2: Context bar | Usage bar ----
-  const line2Parts: string[] = []
 
   // Context
   const ctxWindow = input.context_window
@@ -437,176 +445,156 @@ export async function renderHud(input: HudInput): Promise<string> {
       (ctxWindow.current_usage?.input_tokens ?? 0) +
       (ctxWindow.current_usage?.cache_creation_input_tokens ?? 0) +
       (ctxWindow.current_usage?.cache_read_input_tokens ?? 0)
-    contextPercent = Math.min(
-      100,
-      Math.round((totalTokens / ctxWindow.context_window_size) * 100),
-    )
+    contextPercent = Math.min(100, Math.round((totalTokens / ctxWindow.context_window_size) * 100))
+  }
+  if (contextPercent > 0) {
+    const ctxColor = getContextColor(contextPercent)
+    metrics.push(`${coloredBar(contextPercent, 6)} ${ctxColor}${contextPercent}%${RESET}`)
   }
 
-  const ctxColor = getContextColor(contextPercent)
-  let contextDisplay = `${c.dim('Context')} ${coloredBar(contextPercent, 10)} ${ctxColor}${contextPercent}%${RESET}`
-
-  // Token breakdown when > 85%
+  // Context token details when high usage
   if (contextPercent >= 85 && ctxWindow?.current_usage) {
     const inp = formatTokens(ctxWindow.current_usage.input_tokens ?? 0)
     const cache = formatTokens(
       (ctxWindow.current_usage.cache_creation_input_tokens ?? 0) +
         (ctxWindow.current_usage.cache_read_input_tokens ?? 0),
     )
-    contextDisplay += c.dim(` (in: ${inp}, cache: ${cache})`)
+    metrics.push(c.dim(`${inp} in, ${cache} cache`))
   }
-  line2Parts.push(contextDisplay)
 
-  // Usage (rate limits)
+  // Quota / rate limits
   const fiveHour = input.rate_limits?.five_hour?.used_percentage
-  const sevenDay = input.rate_limits?.seven_day?.used_percentage
   if (typeof fiveHour === 'number') {
     const fhColor = getQuotaColor(fiveHour)
-    const resetAt = input.rate_limits?.five_hour?.resets_at
-    const resetStr = resetAt ? ` (resets in ${formatResetTime(resetAt)})` : ''
-    line2Parts.push(
-      `${c.dim('Usage')} ${quotaBar(fiveHour, 10)} ${fhColor}${Math.round(fiveHour)}%${RESET}${c.dim(resetStr)}`,
-    )
-  }
-  if (typeof sevenDay === 'number' && sevenDay >= 50) {
-    const sdColor = getQuotaColor(sevenDay)
-    const resetAt = input.rate_limits?.seven_day?.resets_at
-    const resetStr = resetAt ? ` (resets in ${formatResetTime(resetAt)})` : ''
-    line2Parts.push(
-      `${c.dim('7d:')} ${sdColor}${Math.round(sevenDay)}%${RESET}${c.dim(resetStr)}`,
-    )
+    metrics.push(`${c.dim('Quota')} ${quotaBar(fiveHour, 6)} ${fhColor}${Math.round(fiveHour)}%${RESET}`)
   }
 
-  lines.push(line2Parts.join(' \u2502 '))
+  // Version
+  if (input.version) {
+    metrics.push(c.dim(`v${input.version}`))
+  }
 
-  // ---- Line 3: Tools (from transcript) ----
+  if (metrics.length > 0) {
+    lines.push(c.dim('\u251C ') + metrics.join(c.dim(' \u2502 ')))
+  }
+
+  // ---- Running tools ----
   const transcriptPath = input.transcript_path || ''
   const transcript = parseTranscriptSync(transcriptPath)
 
   if (transcript.tools.length > 0) {
-    const toolParts: string[] = []
     const running = transcript.tools.filter((t) => t.status === 'running')
-    for (const tool of running.slice(-2)) {
-      const target = tool.target
-        ? tool.target.length > 20
-          ? '.../' + tool.target.split('/').pop()
-          : tool.target
-        : ''
-      toolParts.push(
-        `${c.yellow('\u25D0')} ${c.cyan(tool.name)}${target ? c.dim(`: ${target}`) : ''}`,
-      )
-    }
-    if (toolParts.length > 0) {
-      lines.push(toolParts.join(' | '))
+    if (running.length > 0) {
+      const toolDisplay = running.slice(-2).map((tool) => {
+        const target = tool.target
+          ? tool.target.length > 20
+            ? '…/' + tool.target.split('/').pop()
+            : tool.target
+          : ''
+        return `${c.yellow('\u25D0')} ${c.cyan(tool.name)}${target ? c.dim(`: ${target}`) : ''}`
+      }).join(c.dim(' · '))
+      lines.push(c.dim('\u251C ') + toolDisplay)
     }
   }
 
-  // ---- Line 4: Agents (from transcript) ----
+  // ---- Running agents ----
   const runningAgents = transcript.agents.filter((a) => a.status === 'running')
-  const recentCompleted = transcript.agents
-    .filter((a) => a.status === 'completed')
-    .slice(-2)
-  const agentsToShow = [...runningAgents, ...recentCompleted].slice(-3)
-
-  for (const agent of agentsToShow) {
-    const icon =
-      agent.status === 'running' ? c.yellow('\u25D0') : c.green('\u2713')
-    const type = c.magenta(agent.type)
-    const model = agent.model ? c.dim(`[${agent.model}]`) : ''
-    const desc = agent.description
-      ? c.dim(
-          `: ${agent.description.length > 40 ? agent.description.slice(0, 37) + '...' : agent.description}`,
-        )
-      : ''
-    const elapsed = c.dim(`(${formatElapsed(agent.startMs, agent.endMs)})`)
-    lines.push(`${icon} ${type}${model ? ` ${model}` : ''}${desc} ${elapsed}`)
+  if (runningAgents.length > 0) {
+    const agentDisplay = runningAgents.slice(-2).map((agent) => {
+      const type = c.cyan(agent.type)
+      const elapsed = c.dim(`(${formatElapsed(agent.startMs)})`)
+      return `${c.yellow('\u25D0')} ${type} ${elapsed}`
+    }).join(c.dim(' · '))
+    lines.push(c.dim('\u251C ') + agentDisplay)
   }
 
-  // ---- Extended HUD: Brand/User line (like RuFlo V3.5 ● Chris Wu) ----
-  const hud = input.hud
-  if (hud) {
-    const brand = hud.brand || 'Goder'
-    const user = hud.user ? ` ● ${hud.user}` : ''
-    lines.unshift(`${c.cyan('\u25A9')} ${c.green(brand)}${user}`)
-  }
+  // ---- Extended HUD modules (one compact line per module group) ----
+  const extLines: string[] = []
 
-  // ---- Extended HUD: MCP Servers ----
-  if (hud?.mcp && hud.mcp.length > 0) {
-    const mcpParts: string[] = []
-    for (const server of hud.mcp.slice(0, 3)) {
-      const icon = server.status === 'running' ? c.green('\u25CF') : server.status === 'error' ? c.red('\u25CF') : c.dim('\u25CB')
-      const tools = server.tools !== undefined ? c.dim(`(${server.tools})`) : ''
-      mcpParts.push(`${icon} ${c.cyan(server.name)}${tools}`)
-    }
-    lines.push(`${c.dim('MCP')} ${mcpParts.join(' ')}`)
-  }
-
-  // ---- Extended HUD: Swarm Status ----
-  if (hud?.swarm) {
-    const swarmIcon = hud.swarm.active ? c.green('\u25B6') : c.dim('\u25B6')
-    const agents = hud.swarm.agents !== undefined ? ` ${c.yellow(String(hud.swarm.agents))}` : ''
-    const max = hud.swarm.maxAgents !== undefined ? c.dim(`/ ${hud.swarm.maxAgents}`) : ''
-    lines.push(`${swarmIcon}${c.dim(' Swarm')} ${agents}${max}`)
-  }
-
-  // ---- Extended HUD: DDD Domains ----
+  // DDD Domains
   if (hud?.ddd) {
     const total = hud.ddd.total || 0
     const completed = hud.ddd.completed || 0
-    const domains = hud.ddd.domains || []
-    const domainStr = domains.length > 0 ? ` ${domains.slice(0, 3).join(', ')}` : ''
-    lines.push(`${c.dim('DDD')} ${domainStr} ${c.green('[')}${completed}/${total}${c.green(']')}`)
+    extLines.push(`${c.dim('DDD')} [${completed}/${total}]`)
   }
 
-  // ---- Extended HUD: Architecture Status ----
+  // Swarm
+  if (hud?.swarm) {
+    const active = hud.swarm.agents !== undefined ? `${c.yellow(String(hud.swarm.agents))}/${hud.swarm.maxAgents ?? '?'}` : (hud.swarm.active ? c.green('on') : c.dim('off'))
+    extLines.push(`${c.dim('Swarm')} ${active}`)
+  }
+
+  // Architecture
   if (hud?.architecture) {
-    const adrPart = hud.architecture.adrCount !== undefined
-      ? ` ADR ${c.cyan(String(hud.architecture.adrCount))}${hud.architecture.adrTotal !== undefined ? c.dim(`/ ${hud.architecture.adrTotal}`) : ''}`
-      : ''
-    const dddPart = hud.architecture.dddPercent !== undefined
-      ? ` ${c.magenta('DDD')} ${hud.architecture.dddPercent}%`
-      : ''
+    const parts: string[] = []
+    if (hud.architecture.adrCount !== undefined) {
+      parts.push(`${c.cyan('ADR')} ${hud.architecture.adrCount}/${hud.architecture.adrTotal ?? '?'}`)
+    }
+    if (hud.architecture.dddPercent !== undefined) {
+      parts.push(`${c.magenta('DDD')} ${hud.architecture.dddPercent}%`)
+    }
     const secStatus = hud.architecture.securityStatus
-    const secIcon = secStatus === 'clear' ? c.green('\u2713') : secStatus === 'issue' ? c.red('\u2717') : secStatus === 'scanning' ? c.yellow('\u25D2') : c.dim('\u25CB')
-    const secPart = secStatus ? ` ${secIcon} ${c.dim('Security')}` : ''
-    lines.push(`${c.dim('Architecture')}${adrPart}${dddPart}${secPart}`)
+    if (secStatus) {
+      const secIcon = secStatus === 'clear' ? c.green('\u2713') : secStatus === 'issue' ? c.red('\u2717') : secStatus === 'scanning' ? c.yellow('\u25D2') : c.dim('\u25CB')
+      parts.push(`${secIcon} sec`)
+    }
+    if (parts.length > 0) extLines.push(`${c.dim('Arch')} ${parts.join(c.dim(' · '))}`)
   }
 
-  // ---- Extended HUD: AgentDB Status ----
+  // AgentDB
   if (hud?.agentdb) {
-    const vectors = hud.agentdb.vectors !== undefined ? ` ${c.cyan('Vec')} ${hud.agentdb.vectors}` : ''
-    const size = hud.agentdb.sizeKb !== undefined ? ` ${c.dim(String(Math.round(hud.agentdb.sizeKb / 1024)))}MB` : ''
-    const tests = hud.agentdb.tests !== undefined ? ` ${c.green('Test')} ${hud.agentdb.tests}` : ''
-    lines.push(`${c.dim('AgentDB')}${vectors}${size}${tests}`)
+    const parts: string[] = []
+    if (hud.agentdb.vectors !== undefined) parts.push(`vec ${c.cyan(String(hud.agentdb.vectors))}`)
+    if (hud.agentdb.sizeKb !== undefined) parts.push(`${Math.round(hud.agentdb.sizeKb / 1024)}MB`)
+    if (hud.agentdb.tests !== undefined) parts.push(`test ${c.green(String(hud.agentdb.tests))}`)
+    if (parts.length > 0) extLines.push(`${c.dim('AgentDB')} ${parts.join(c.dim(' · '))}`)
   }
 
-  // ---- Extended HUD: Hooks Status ----
-  if (hud?.hooks) {
-    const active = hud.hooks.active ?? 0
-    const total = hud.hooks.total ?? 0
-    lines.push(`${c.dim('Hooks')} ${c.green(String(active))}/${total}`)
+  // MCP
+  if (hud?.mcp && hud.mcp.length > 0) {
+    const mcpDisplay = hud.mcp.slice(0, 3).map((server) => {
+      const icon = server.status === 'running' ? c.green('\u25CF') : server.status === 'error' ? c.red('\u25CF') : c.dim('\u25CB')
+      return `${icon} ${c.cyan(server.name)}${server.tools !== undefined ? c.dim(`(${server.tools})`) : ''}`
+    }).join(c.dim(' · '))
+    extLines.push(mcpDisplay)
   }
 
-  // ---- Extended HUD: CVE Status ----
-  if (hud?.cve) {
-    const scanned = hud.cve.scanned ?? 0
-    const vulns = hud.cve.vulnerabilities ?? 0
-    const cveIcon = vulns === 0 ? c.green('\u25CF') : c.red('\u25CF')
-    lines.push(`${cveIcon} ${c.dim('CVE')} ${scanned}/${vulns}`)
-  }
-
-  // ---- Extended HUD: Memory Status ----
+  // Memory
   if (hud?.memory) {
-    const used = hud.memory.usedMb !== undefined ? ` ${c.yellow(String(Math.round(hud.memory.usedMb)))}MB` : ''
-    const pct = hud.memory.percent !== undefined ? ` ${hud.memory.percent}%` : ''
-    lines.push(`${c.dim('Memory')}${used}${pct ? c.cyan(pct) : ''}`)
+    const used = hud.memory.usedMb !== undefined ? `${Math.round(hud.memory.usedMb)}MB` : ''
+    const pct = hud.memory.percent !== undefined ? `${hud.memory.percent}%` : ''
+    extLines.push(`${c.dim('Mem')} ${used} ${pct}`.trim())
   }
 
-  // ---- Extended HUD: Brain Status ----
+  // Brain
   if (hud?.brain) {
     const pct = hud.brain.usedPercent ?? 0
     const pctColor = pct >= 80 ? c.red : pct >= 60 ? c.yellow : c.green
-    lines.push(`${c.dim('Brain')} ${pctColor(String(pct))}%`)
+    extLines.push(`${c.dim('Brain')} ${pctColor(String(pct))}%`)
+  }
+
+  // Hooks
+  if (hud?.hooks) {
+    extLines.push(`${c.dim('Hooks')} ${c.green(String(hud.hooks.active ?? 0))}/${hud.hooks.total ?? '?'}`)
+  }
+
+  // CVE
+  if (hud?.cve) {
+    const scanned = hud.cve.scanned ?? 0
+    const vulns = hud.cve.vulnerabilities ?? 0
+    const cveColor = vulns === 0 ? c.green : c.red
+    extLines.push(`${cveColor('\u25CF')} ${scanned}/${vulns} ${c.dim('CVE')}`)
+  }
+
+  // Render compact extended lines (2-3 modules per line)
+  for (let i = 0; i < extLines.length; i += 3) {
+    const chunk = extLines.slice(i, i + 3)
+    lines.push(c.dim('\u2502 ') + chunk.join(c.dim(' · ')))
+  }
+
+  // Footer separator
+  if (lines.length > 1) {
+    lines.push(c.dim('\u2570'))
   }
 
   return lines.join('\n')

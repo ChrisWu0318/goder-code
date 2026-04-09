@@ -65,6 +65,24 @@ if (typeof globalThis.MACRO === "undefined") {
 (globalThis as any).BUILD_ENV = "production";
 (globalThis as any).INTERFACE_TYPE = "stdio";
 
+// Happy integration: when launched by Happy's local mode, stdin is piped
+// (not a TTY), so Ink's raw mode check fails. Patch stdin to fake TTY
+// support so the TUI can start. Goder will run idle and wait for input,
+// which is exactly what Happy's session scanner expects.
+if (process.env.HAPPY_INTERACTIVE === '1') {
+    // Fake TTY support so Ink doesn't show the "Raw mode not supported" error
+    if (process.stdin) {
+        (process.stdin as any).isTTY = true;
+        const originalSetRawMode = (process.stdin as any).setRawMode;
+        (process.stdin as any).setRawMode = function(mode: boolean) {
+            // Silently ignore raw mode calls — stdin isn't a real TTY
+            // but we pretend so Ink's startup checks pass
+        };
+        // Prevent "resume" events from the piped stdin
+        (process.stdin as any).resume = () => {};
+    }
+}
+
 // Companion observer — provide the global fireCompanionObserver for buddy reactions
 import { fireCompanionObserver } from '../buddy/observer.js';
 (globalThis as any).fireCompanionObserver = fireCompanionObserver;
